@@ -3,17 +3,20 @@ import asyncio
 from lib2to3.pgen2 import driver
 import aiohttp
 from dotenv import load_dotenv
+from lpbook import LPDriver
 #import pytest_asyncio
 from lpbook.LPCache import LPCache
 from lpbook.lps.curve import CurveDriver, CurveTheGraphAsyncProxy, CurveWeb3AsyncProxy
 from lpbook.lps.uniswap_v3 import UniV3Driver, UniV3TheGraphProxy
 from lpbook.lps.uniswap_v3.subgraph import UniV3GraphQLClient
 from lpbook.util import LP
-from lpbook.web3.BlockIndex import BlockIndex
+from lpbook.web3.block_stream import BlockStream
 
 import os
 from web3 import Web3
 import logging.config
+
+from lpbook.web3.event_stream import ServerFilteredEventStream
 
 logging.config.fileConfig(fname='logging.conf', disable_existing_loggers=True)
 
@@ -23,7 +26,7 @@ load_dotenv()
 INFURA_ID = os.getenv("INFURA_ID")
 
 
-async def assert_equivalent_proxies(web3_client, proxy1, proxy2, block_index, block_lag=0):
+async def assert_equivalent_proxies(web3_client, proxy1, proxy2, block_stream, block_lag=0):
     """Tests if two different proxies yield exactly the same results."""
 
     async def check_at_block(block_number, block_hash):
@@ -53,20 +56,20 @@ async def assert_equivalent_proxies(web3_client, proxy1, proxy2, block_index, bl
     logger.debug("Starting proxies ... done")
 
     logger.debug(f"Starting block index at block {cur_block.number - block_lag} ...")
-    asyncio.ensure_future(block_index.run(cur_block.number - block_lag))
+    asyncio.ensure_future(block_stream.run(cur_block.number - block_lag))
     logger.debug("Starting block index ... done")
 
     # wait until all caches are filled
     logger.debug("Warm up cache ...")
-    while block_index.last_block_number is None or block_index.last_block_number < cur_block.number:
-        await asyncio.sleep(15)
+    while block_stream.last_block_number is None or block_stream.last_block_number < cur_block.number:
+        await asyncio.sleep(5)
     logger.debug("Warm up cache ... done")
     
     logger.info("Starting run loop ...")
     while True:
-        cur_block_number = block_index.last_block_number - block_lag
+        cur_block_number = block_stream.last_block_number - block_lag
         if block_lag == 0:
-            cur_block_hash = block_index.last_block_hash
+            cur_block_hash = block_stream.last_block_hash
         else:
             cur_block = web3_client.eth.get_block(cur_block_number)
             cur_block_hash = cur_block.hash.hex()
@@ -82,6 +85,7 @@ async def assert_equivalent_proxies(web3_client, proxy1, proxy2, block_index, bl
 
 
 WS_WEB3_URL = f'wss://mainnet.infura.io/ws/v3/{INFURA_ID}'
+#WS_WEB3_URL = 'wss://eth-mainnet.alchemyapi.io/v2/270Ng0vUmrsinDLbgeNAldwNmuO8aDC4'
 HTTP_WEB3_URL = f'https://mainnet.infura.io/v3/{INFURA_ID}'
 
 
@@ -93,16 +97,23 @@ async def test_uniswap_v3():
     #w3 = Web3(Web3.HTTPProvider(HTTP_WEB3_URL))
     w3 = Web3(Web3.HTTPProvider('https://eth-mainnet.alchemyapi.io/v2/270Ng0vUmrsinDLbgeNAldwNmuO8aDC4'))
 
-    block_index = BlockIndex(WS_WEB3_URL)
+    block_stream = BlockStream(WS_WEB3_URL)
+    event_stream = ServerFilteredEventStream(block_stream, w3)
     async with aiohttp.ClientSession() as session:
-        driver_thegraph = UniV3Driver(block_index, session, w3, proxy=UniV3Driver.Proxy.TheGraph)
-        driver_web3 = UniV3Driver(block_index, session, w3, proxy=UniV3Driver.Proxy.TheGraphAndWeb3)
+        driver_thegraph = UniV3Driver(event_stream, block_stream, session, w3)
+        driver_web3 = UniV3Driver(event_stream, block_stream, session, w3)
 
-        proxy_thegraph = driver_thegraph.create_lp_sync_proxy(await driver_thegraph.get_lp_ids(token_ids))
-        proxy_web3 = driver_web3.create_lp_sync_proxy(await driver_web3.get_lp_ids(token_ids))
-        #asyncio.ensure_future(proxy_web3.start())
+        lp_ids = await driver_thegraph.get_lp_ids(token_ids)
+        proxy_thegraph = driver_thegraph.create_lp_sync_proxy(
+            lp_ids,
+            LPDriver.LPSyncProxyDataSource.TheGraph
+        )
+        proxy_web3 = driver_web3.create_lp_sync_proxy(
+            lp_ids,
+            LPDriver.LPSyncProxyDataSource.TheGraphAndWeb3
+        )
 
-        await assert_equivalent_proxies(w3, proxy_thegraph, proxy_web3, block_index, 10)
+        await assert_equivalent_proxies(w3, proxy_thegraph, proxy_web3, block_stream, 10)
 
 
 # This is currently not working, since the curve subgraph apparently is not handling
@@ -116,16 +127,16 @@ async def test_curve():
     #w3 = Web3(Web3.WebsocketProvider(WS_WEB3_URL))
     w3 = Web3(Web3.HTTPProvider(HTTP_WEB3_URL))
 
-    block_index = BlockIndex(WS_WEB3_URL)
+    block_stream = BlockStream(WS_WEB3_URL)
     async with aiohttp.ClientSession() as session:
-        driver_thegraph = CurveDriver(block_index, session, w3, proxy=CurveDriver.Proxy.TheGraph)
-        driver_web3 = CurveDriver(block_index, session, w3, proxy=CurveDriver.Proxy.Web3)
+        driver_thegraph = CurveDriver(block_stream, session, w3, proxy=CurveDriver.Proxy.TheGraph)
+        driver_web3 = CurveDriver(block_stream, session, w3, proxy=CurveDriver.Proxy.Web3)
 
         proxy_thegraph = driver_thegraph.create_lp_sync_proxy(await driver_thegraph.get_lp_ids(token_ids))
         proxy_web3 = driver_web3.create_lp_sync_proxy(await driver_web3.get_lp_ids(token_ids))
 
 
-        await assert_equivalent_proxies(w3, proxy_thegraph, proxy_web3, block_index, 10)
+        await assert_equivalent_proxies(w3, proxy_thegraph, proxy_web3, block_stream, 10)
 
 def debug():
     #w3 = Web3(Web3.HTTPProvider(HTTP_WEB3_URL))
@@ -139,8 +150,8 @@ def debug():
     filter = w3.eth.filter(filter_parameters) 
     print(filter.get_all_entries())
 
-#asyncio.run(test_uniswap_v3())
-asyncio.run(test_curve())
+asyncio.run(test_uniswap_v3())
+#asyncio.run(test_curve())
 
 #async def test():
 #    w3 = Web3(Web3.HTTPProvider(HTTP_WEB3_URL))

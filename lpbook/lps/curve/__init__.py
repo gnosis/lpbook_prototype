@@ -17,7 +17,7 @@ from lpbook import (CacheMissError, LPSyncProxyFromAsyncProxy,
                           LPSyncProxy, LPDriver, LPAsyncProxy, RecentStateCache)
 from lpbook.util import LP, Token
 from lpbook.web3 import create_token_from_web3, Block
-from lpbook.web3.BlockIndex import BlockIndex
+from lpbook.web3.block_stream import BlockStream
 from web3.constants import ADDRESS_ZERO
 
 setcontext(Context(prec=MAX_PREC, Emax=MAX_EMAX, Emin=MIN_EMIN))
@@ -74,7 +74,7 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
 
     async def latest_block(self) -> Block:
         block = await self.client.eth.get_block()
-        return Block(number=block.number, hash=str(block.hash))
+        return Block(number=block.number, hash=block.hash.hex())
 
     @cache
     def get_tokens(self, lp_id_chksum) -> List[Token]:
@@ -221,12 +221,12 @@ class CurveDriver(LPDriver):
 
     def __init__(
         self,
-        block_index: BlockIndex,
+        block_stream: BlockStream,
         session: aiohttp.ClientSession,
         web3_client=None,
         proxy: Proxy = Proxy.TheGraph
     ):
-        self.block_index = block_index
+        self.block_stream = block_stream
         if proxy == CurveDriver.Proxy.Web3:
             assert web3_client is not None
             self.web3_client = web3_client
@@ -244,7 +244,7 @@ class CurveDriver(LPDriver):
                 lp_ids, self.graphql_client
             )
         sync_proxy = LPSyncProxyFromAsyncProxy(
-            async_proxy, self.block_index
+            async_proxy, self.block_stream
         )
         return sync_proxy
 

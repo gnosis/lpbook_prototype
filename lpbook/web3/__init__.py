@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Union
 
 from web3.exceptions import ContractLogicError
 
@@ -22,6 +23,9 @@ def create_token_from_web3(address, web3_client):
 
     return Token(address=address.lower(), symbol=symbol, decimals=decimals)
 
+
+# Following web3 convention, can be 'latest', a block number, or a block hash.
+BlockDescriptor = Union[str, int]
 
 @dataclass
 class Block:

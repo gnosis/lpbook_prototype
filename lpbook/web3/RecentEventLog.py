@@ -1,109 +1,92 @@
 import logging
 from typing import Any, List
 
-from web3.types import HexBytes
+from lpbook.error import CacheMissError
 
-from lpbook import CacheMissError
-
-from .EventNotifier import EventNotifier
+from .event_stream import EventStream
+from web3.contract import ContractEvent
 
 logger = logging.getLogger(__name__)
 
+
 class RecentEventLog:
     """"Stores events from a start block up to the most recent block.
+
+    Keeps events sorted, taking care of potential chain reorgs.
     """
-    def __init__(self, lp_ids, event_types, web3_client, block_index):
+    def __init__(self, web3_client, event_stream: EventStream):
         self.web3_client = web3_client
-        self.event_types = event_types
-    
+        self.event_stream = event_stream
+
         self.events = []
         self.start_block_number = None
         self.start_block_hash = None
-        
-        self.lp_ids = lp_ids
-        self.block_index = block_index
-        self.block_index.subscribe_to_new_blocks(self.update_event_notifier)
 
-
-    def create_event_notifier(self, lp_ids):
-        self.event_notifier = EventNotifier(
-            self.event_callback,
-            self.event_types,
-            [self.web3_client.toChecksumAddress(lp_id.lower()) for lp_id in lp_ids],
-            self.web3_client
-        )
-
-    async def update_event_notifier(self, block_number, block_hash):
-        if self.start_block_number is None:
-            self.start_block_number = block_number
-            self.start_block_hash = block_hash
-
-        logger.debug(f"Polling blockchain for new events {self} ...")
-        await self.event_notifier.update()
-        logger.debug(f"Polling blockchain for new events {self} ... done")
-
-    def is_ready(self):
-        return self.start_block_number is not None
-
-    def event_callback(self, event):
-        logger.debug(f"Got event: {event}.")
+    def process_new_event(self, event):
+        logger.debug(f"Processing event {event} ....")
 
         assert \
             len(self.events) == 0 or \
+            event in self.events or \
             event.blockNumber > self.events[-1].blockNumber or \
             (event.blockNumber == self.events[-1].blockNumber and event.logIndex > self.events[-1].logIndex) or \
             event.removed
 
-        if event.removed:
-            # If it is removed, then we must have it stored.
-            assert len(self.events) > 0
+        if event.removed and event in self.events:
             self.events = [
                 e for e in self.events
                 if e.blockHash != event.blockHash or e.logIndex != event.logIndex
             ]
-        else:
+        elif event not in self.events:
             assert \
                 len(self.events) == 0 or \
                 event.blockNumber > self.events[-1].blockNumber or \
                 (event.blockNumber == self.events[-1].blockNumber and event.logIndex > self.events[-1].logIndex)
             self.events.append(event)
 
-            # This can happen if all events are removed
+            # This could happen if all events are removed. To avoid it, pass an old enough from_block 
+            # to the "start" method.
             if event.blockNumber < self.start_block_number:
-                self.start_block_number = event.blockNumber
-                self.start_block_hash = event.blockHash.hex()
+                logger.critical(f'{self} found in an possibly inconsistent state. Exiting ...')
+                assert False
 
-    def start(self, from_block_number: int = None) -> None:
+    def start(
+        self,
+        addresses: List[str],
+        events: List[ContractEvent],
+        start_block_number: int,
+        start_block_hash: str,
+    ) -> None:
         """Sets start_block to given block and starts collecting the delta asynchronously.
 
-        If from_block_number is None, then it is set to the most recent block.
-
-        Note: If there is a reorg and start_block becomes orphan, then start_block will be
-        reset to oldest block of the sequence that is added to the active chain.
+        NOTE: start_block must be old enough so that if there is a reorg it can't become
+        orphan. There are some efforts to detect this case, but they are not complete.
         """
-        logger.debug(f"Starting {self}")
-        #if from_block_number is None:
-        #    from_block_number = 'latest'
-        #start_block = self.web3_client.eth.get_block(from_block_number)
-        #self.start_block_number = start_block.number
-        #self.start_block_hash = start_block.hash.hex()
-
-        self.create_event_notifier(self.lp_ids)
-        self.event_notifier.start(from_block_number)
+        self.start_block_number = start_block_number
+        self.start_block_hash = start_block_hash
+        logger.debug(f"Starting {self} ...")
+        self.event_stream.subscribe(
+            self.process_new_event,
+            addresses,
+            events,
+            start_block_number
+        )
 
     def stop(self) -> None:
-        self.event_notifier.stop()
+        self.event_stream.unsubscribe(self.process_new_event)
         self.start_block_number = self.start_block_hash = None
+        logger.debug('Stopped {self}')
 
-    def replace_lps(self, new_lp_ids):
-        """Replaces the recent set of monitored lp addresses."""
-        self.stop()
-        self.create_event_notifier(new_lp_ids)
-        self.start()
+    def update(self, addresses: List[str], events: List[ContractEvent]):
+        """Updates filter."""
+        logger.debug(f'Updating {self} ...')
 
-    def get_block_number_from_block_hash(self, block_hash):
-        i = self.block_hashes.index(block_hash)
-        return self.block_numbers[i]
+        cur_block_hash = self.event_stream.last_block_hash
+
+        # NOTE: we can do this since process_event above ensures de-duplication of events.
+        # The cur_block_number + 1 alternative does not look robust to race
+        # conditions due to chain reorgs.
+        self.event_stream.change_subscription(self.process_new_event, addresses, events, cur_block_hash)
 
     def __call__(self, block_number=None, block_hash=None) -> List[Any]:
         """Returns deltas from self.get_start_block() up to (including) given block.
@@ -112,11 +95,11 @@ class RecentEventLog:
         Note: the block range for which deltas are returned is [start_block, block].
         """
         if block_hash is not None:
-            if block_hash not in self.block_index.block_hashes:
+            if block_hash not in self.event_stream.block_hashes:
                 raise CacheMissError(f"No events for block {block_hash} in cache.")
-            block_number = self.block_index.get_block_number_from_hash(block_hash)
+            block_number = self.event_stream.get_block_number_from_hash(block_hash)
         if block_number is not None:
-            if block_number not in self.block_index.block_numbers:
+            if block_number not in self.event_stream.block_numbers:
                 raise CacheMissError(f"No events for block {block_number} in cache.")
             return [e for e in self.events if e.blockNumber <= block_number]
         return self.events
@@ -130,7 +113,7 @@ class RecentEventLog:
 
     def update_start_block(self, new_start_block_number) -> None:
         """Updates start block monotonically.
-        
+
         Updates start block to more recent block. This will free
         all delta between start_block and new_start_block - 1.
 

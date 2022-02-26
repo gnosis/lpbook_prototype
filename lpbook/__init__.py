@@ -1,20 +1,17 @@
 import asyncio
+from enum import Enum
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Union
 
 from lpbook.util import LP
 from lpbook.web3 import Block
-from lpbook.web3.BlockIndex import BlockIndex
+from lpbook.web3.block_stream import BlockStream
+from lpbook.web3.RecentEventLog import RecentEventLog
+from lpbook.error import CacheMissError
 
 logger = logging.getLogger(__name__)
 
-
-class CacheMissError(RuntimeError):
-    pass
-
-class TemporaryError(RuntimeError):
-    pass
 
 
 class RecentStateCache:
@@ -113,12 +110,12 @@ class LPSyncProxyFromAsyncProxy(LPSyncProxy):
     def __init__(
         self,
         underlying_lp_async_proxy: LPAsyncProxy,
-        block_index: BlockIndex
+        block_stream: BlockStream
     ):
         self.recent_state_cache = RecentStateCache(self.CACHE_SIZE)
         self.underlying_lp_async_proxy = underlying_lp_async_proxy
-        self.block_index = block_index
-        self.block_index.subscribe_to_new_blocks(self.query_underlying_lp_async_proxy)
+        self.block_stream = block_stream
+        self.block_stream.subscribe(self.query_underlying_lp_async_proxy)
 
     async def query_underlying_lp_async_proxy(
         self,
@@ -153,78 +150,41 @@ class LPSyncProxyFromAsyncProxy(LPSyncProxy):
 
 
 class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
-    SYNCED_WATCHDOG_FREQ = 10   # seconds
     # if ethereum finality is 6 blocks,
     # we would only need to keep 6 blocks since checkpoint.
     MAX_NR_BLOCKS_TO_CHECKPOINT = 25
 
-    def __init__(self, async_proxy, event_log):
+    def __init__(self, lp_ids, events, async_proxy, event_stream, web3_client):
+        self.lp_ids = lp_ids
+        self.events = events
         self.async_proxy = async_proxy
-        self.event_log = event_log
+        self.web3_client = web3_client
+        self.event_log = RecentEventLog(web3_client, event_stream)
         self.checkpoint = None
-        #self.checkpoint_block_hash = None
-        self.keep_synced_task = None
 
     async def start(self) -> None:
         logger.debug(f"Starting {self} ...")
-        #assert self.checkpoint_block_hash is None
+
         # since async_proxy might not be up to date,
         # it is what defines the start block.
         latest_block = await self.async_proxy.latest_block()
         start_block_number = latest_block.number - self.MAX_NR_BLOCKS_TO_CHECKPOINT
+        start_block_hash = self.web3_client.eth.get_block(start_block_number).hash.hex()
+        self.checkpoint = await self.async_proxy(start_block_number, start_block_hash)
 
-        self.checkpoint = await self.async_proxy(block_number=start_block_number)
+        self.event_log.start(
+            self.lp_ids,
+            self.events,
+            start_block_number,
+            start_block_hash
+        )
 
-        self.event_log.start(start_block_number)
-        #self.keep_synced_task = asyncio.ensure_future(self.keep_synced())
         logger.debug(f"Starting {self} ... done")
 
     def stop(self) -> None:
-        if self.keep_synced_task is None:
-            return
         logger.debug(f"Stopping {self} ...")
         self.event_log.stop()
-        self.keep_synced_task.cancel()
         logger.debug(f"Stopping {self} ... done")
-
-    """
-    async def keep_synced(self) -> None:
-        try:
-            while True:
-                if not self.is_synced():
-                    logger.debug("LPFromInitialStatePlusChangesProxy out-of-sync. Re-syncing ...")
-                    await self.sync()
-                await asyncio.sleep(self.SYNCED_WATCHDOG_FREQ)
-        except asyncio.CancelledError:
-            pass
-
-    def is_synced(self) -> bool:
-        # The second condition can occur due to a chain reorg that orphans self.checkpoint_block
-        return \
-            self.checkpoint_block_hash is not None and \
-            self.event_log.start_block_hash == self.checkpoint_block_hash
-
-    def is_ready(self) -> bool:
-        return self.event_log.is_ready()
-
-    async def sync(self) -> None:
-        logger.debug(f"Syncing {self} ...")
-        while self.event_log.start_block_hash is None:
-            await asyncio.sleep(2)
-
-        while True:
-            checkpoint_block_hash = self.event_log.start_block_hash
-            print(checkpoint_block_hash)
-            try:
-                checkpoint = await self.async_proxy(block_hash=checkpoint_block_hash)
-                break
-            except RuntimeError as e:
-                logger.warn(f"Error getting initial state (block {checkpoint_block_hash[:8]}) for {self}: {e}. Retrying in 5 secs ...")
-                await asyncio.sleep(5)
-        self.checkpoint_block_hash = checkpoint_block_hash
-        self.checkpoint = checkpoint
-        logger.debug(f"Synced {self}. Setting initial state at block {self.checkpoint_block_hash[:8]}")
-    """
 
     def __call__(self, block_number: int = None, block_hash: str = None) -> Dict[str, LP]:
         """Returns a list of lps with state at (the end of) given block.
@@ -237,15 +197,6 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         """
 
         logger.debug(f"Querying {self} (block={block_number}) ...")
-
-        #assert self.is_synced()
-        #if not self.is_synced():
-        #    logger.debug(f"Attempt to retrieve state from an out-of-sync {self}.")
-        #    return {}
-
-        #if not self.is_ready():
-        #    logger.debug(f"Attempt to retrieve state from a not yet ready {self}.")
-        #    return {}
             
         state = self.get_state(self.checkpoint, self.event_log(block_number=block_number, block_hash=block_hash))
 
@@ -267,6 +218,10 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
 
 
 class LPDriver(ABC):
+    class LPSyncProxyDataSource(Enum):
+        TheGraph = 1
+        Web3 = 2
+        TheGraphAndWeb3 = 3
 
     @abstractmethod
     def type(self) -> str:

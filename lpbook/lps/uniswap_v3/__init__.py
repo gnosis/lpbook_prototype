@@ -1,17 +1,17 @@
-from enum import Enum
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List
 
 import aiohttp
-from lpbook import (LPSyncProxyFromAsyncProxy, LPSyncProxy, LPAsyncProxy, LPDriver,
-                          LPFromInitialStatePlusChangesProxy)
+from lpbook import (LPAsyncProxy, LPDriver, LPFromInitialStatePlusChangesProxy,
+                    LPSyncProxy, LPSyncProxyFromAsyncProxy)
 from lpbook.util import LP, Token
 from lpbook.web3 import Block
-from lpbook.web3.RecentEventLog import RecentEventLog
-from lpbook.web3.BlockIndex import BlockIndex
+from lpbook.web3.block_stream import BlockStream
+from lpbook.web3.event_stream import EventStream
 
 from .subgraph import UniV3GraphQLClient
 
@@ -26,7 +26,7 @@ class UniV3(LP):
     token1: Token
     sqrt_price: int
     liquidity: int
-    tick: int    
+    tick: int
     liquidity_net: Dict[int, int]
 
     @property
@@ -117,9 +117,10 @@ class UniV3TheGraphProxy(LPAsyncProxy):
         return state
 
 
-class UniV3EventLog(RecentEventLog):
-    def __init__(self, lp_ids, web3_client, block_index):
+class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
+    """Queries TheGraph for an initial state, and web3 for state updates."""
 
+    def __init__(self, lp_ids, async_proxy, event_stream, web3_client):
         # read abi from same directory as this file.
         with open(Path(__file__).parent / "artifacts" / "uniswap_v3.abi", "r") as f:
             contract_abi = f.read()
@@ -128,16 +129,13 @@ class UniV3EventLog(RecentEventLog):
         super().__init__(
             lp_ids,
             [UniV3.events.Swap, UniV3.events.Burn, UniV3.events.Mint],
-            web3_client,
-            block_index
+            async_proxy,
+            event_stream,
+            web3_client
         )
 
-
-class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
-    """Queries TheGraph for an initial state, and web3 for state updates."""
-
     def get_state(self, prev_state: Dict[str, LP], changes: List[Any]) -> Dict[str, LP]:
-        """Assembles state from checkpoint and changes."""
+        """Assembles state from previous state and updates."""
 
         cur_state = deepcopy(prev_state) 
 
@@ -194,31 +192,44 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
 
 
 class UniV3Driver(LPDriver):
-    class Proxy(Enum):
-        TheGraph = 1
-        TheGraphAndWeb3 = 2
-
-    def __init__(self, block_index: BlockIndex, session: aiohttp.ClientSession, web3_client, proxy : Proxy=Proxy.TheGraphAndWeb3):
-        self.block_index = block_index
+    def __init__(
+        self,
+        event_stream: EventStream,
+        block_stream: BlockStream,
+        session: aiohttp.ClientSession,
+        web3_client
+    ):
+        self.event_stream = event_stream
+        self.block_stream = block_stream
         self.web3_client = web3_client
         self.graphql_client = UniV3GraphQLClient(session)
-        self.proxy = proxy
 
     def type(self) -> str:
         return "UniswapV3"
 
-    def create_lp_sync_proxy(self, lp_ids: List[str]) -> LPSyncProxy:
+    def create_lp_sync_proxy(
+        self,
+        lp_ids: List[str],
+        data_source: LPDriver.LPSyncProxyDataSource
+    ) -> LPSyncProxy:
         async_proxy = UniV3TheGraphProxy(lp_ids, self.graphql_client)
-        if self.proxy == UniV3Driver.Proxy.TheGraphAndWeb3:
-            event_log = UniV3EventLog(lp_ids, self.web3_client, self.block_index)
-            sync_proxy = UniV3TheGraphAndWeb3Proxy(async_proxy, event_log)
+        if data_source == LPDriver.LPSyncProxyDataSource.TheGraphAndWeb3:
+            sync_proxy = UniV3TheGraphAndWeb3Proxy(
+                lp_ids,
+                async_proxy,
+                self.event_stream,
+                self.web3_client
+            )
+        elif data_source == LPDriver.LPSyncProxyDataSource.TheGraph:
+            sync_proxy = LPSyncProxyFromAsyncProxy(async_proxy, self.block_stream)
         else:
-            sync_proxy = LPSyncProxyFromAsyncProxy(async_proxy, self.block_index)
+            assert False
         return sync_proxy
 
     async def get_lp_ids(self, token_ids: List[str]) -> List[str]:
         return [
             state.id async for state in self.graphql_client.get_pools_state(
-            {'token0_in': token_ids, 'token1_in': token_ids},
-            field_setter=self.graphql_client.set_pool_id_field
-        )]
+                {'token0_in': token_ids, 'token1_in': token_ids},
+                field_setter=self.graphql_client.set_pool_id_field
+            )
+        ]
