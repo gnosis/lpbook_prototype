@@ -18,7 +18,9 @@ logging.config.fileConfig(fname='logging.conf', disable_existing_loggers=True)
 logger = logging.getLogger(__name__)
 
 load_dotenv()
-INFURA_ID = os.getenv('INFURA_ID')
+
+HTTP_WEB3_URL = os.getenv('HTTP_WEB3_URL')
+WS_WEB3_URL = os.getenv('WS_WEB3_URL')
 
 
 async def assert_equivalent_proxies(
@@ -94,11 +96,6 @@ async def assert_equivalent_proxies(
             await asyncio.sleep(10)
 
 
-WS_WEB3_URL = f'wss://mainnet.infura.io/ws/v3/{INFURA_ID}'
-# WS_WEB3_URL = 'wss://eth-mainnet.alchemyapi.io/v2/270Ng0vUmrsinDLbgeNAldwNmuO8aDC4'
-HTTP_WEB3_URL = f'https://mainnet.infura.io/v3/{INFURA_ID}'
-
-
 async def test_uniswap_v3():
 
     token_ids = {
@@ -108,9 +105,6 @@ async def test_uniswap_v3():
 
     # w3 = Web3(Web3.WebsocketProvider(WS_WEB3_URL))
     w3 = Web3(Web3.HTTPProvider(HTTP_WEB3_URL))
-    # w3 = Web3(
-    #   Web3.HTTPProvider('https://eth-mainnet.alchemyapi.io/v2/270Ng0vUmrsinDLbgeNAldwNmuO8aDC4')
-    # )
 
     block_stream = BlockStream(WS_WEB3_URL)
     event_stream = ServerFilteredEventStream(block_stream, w3)
