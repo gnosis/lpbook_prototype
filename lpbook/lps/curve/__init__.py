@@ -5,7 +5,6 @@ from dataclasses import dataclass
 from decimal import MAX_EMAX, MAX_PREC, MIN_EMIN, Context
 from decimal import Decimal as D
 from decimal import setcontext
-from enum import Enum
 from functools import cache
 from pathlib import Path
 from typing import Dict, List
@@ -54,6 +53,8 @@ class Curve(LP):
 
 
 class CurveWeb3AsyncProxy(LPAsyncProxy):
+    """"Proxies the state of the curve LP through web3."""
+
     REGISTRY_CONTRACT_ADDRESS = '0x90e00ace148ca3b23ac1bc8c240c2a7dd9c2d7f5'
 
     def __init__(self, lp_ids, web3_client):
@@ -148,7 +149,7 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
 
 
 class CurveTheGraphAsyncProxy(LPAsyncProxy):
-    """"Loads the state of liquidity from TheGraph."""
+    """"Proxies the state of the curve LP through TheGraph."""
     def __init__(self, lp_ids, curve_gql_client):
         assert len(lp_ids) >= 1
         self.lp_ids = lp_ids
@@ -225,31 +226,28 @@ class CurveTheGraphAsyncProxy(LPAsyncProxy):
 
 
 class CurveDriver(LPDriver):
-    class Proxy(Enum):
-        TheGraph = 1
-        Web3 = 2
-
     def __init__(
         self,
         block_stream: BlockStream,
         session: aiohttp.ClientSession,
-        web3_client=None,
-        proxy: Proxy = Proxy.TheGraph
+        web3_client=None
     ):
         self.block_stream = block_stream
-        if proxy == CurveDriver.Proxy.Web3:
-            assert web3_client is not None
-            self.web3_client = web3_client
+        self.web3_client = web3_client
         self.graphql_client = CurveGraphQLClient(session)
-        self.proxy = proxy
 
     def type(self) -> str:
         return "Curve"
 
-    def create_lp_sync_proxy(self, lp_ids: List[str]) -> LPSyncProxy:
-        if self.proxy == CurveDriver.Proxy.Web3:
+    def create_lp_sync_proxy(
+        self,
+        lp_ids: List[str],
+        data_source: LPDriver.LPSyncProxyDataSource
+    ) -> LPSyncProxy:
+        if data_source == LPDriver.LPSyncProxyDataSource.Web3:
             async_proxy = CurveWeb3AsyncProxy(lp_ids, self.web3_client)
         else:
+            assert data_source == LPDriver.LPSyncProxyDataSource.TheGraph
             async_proxy = CurveTheGraphAsyncProxy(
                 lp_ids, self.graphql_client
             )

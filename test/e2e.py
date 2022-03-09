@@ -109,15 +109,14 @@ async def test_uniswap_v3():
     block_stream = BlockStream(WS_WEB3_URL)
     event_stream = ServerFilteredEventStream(block_stream, w3)
     async with aiohttp.ClientSession() as session:
-        driver_thegraph = UniV3Driver(event_stream, block_stream, session, w3)
-        driver_web3 = UniV3Driver(event_stream, block_stream, session, w3)
+        driver = UniV3Driver(event_stream, block_stream, session, w3)
 
-        lp_ids = await driver_thegraph.get_lp_ids(token_ids)
-        proxy_thegraph = driver_thegraph.create_lp_sync_proxy(
+        lp_ids = await driver.get_lp_ids(token_ids)
+        proxy_thegraph = driver.create_lp_sync_proxy(
             lp_ids,
             LPDriver.LPSyncProxyDataSource.TheGraph
         )
-        proxy_web3 = driver_web3.create_lp_sync_proxy(
+        proxy_web3 = driver.create_lp_sync_proxy(
             lp_ids,
             LPDriver.LPSyncProxyDataSource.TheGraphAndWeb3
         )
@@ -141,22 +140,20 @@ async def test_curve():
 
     block_stream = BlockStream(WS_WEB3_URL)
     async with aiohttp.ClientSession() as session:
-        driver_thegraph = CurveDriver(
-            block_stream,
-            session,
-            w3,
-            proxy=CurveDriver.Proxy.TheGraph
-        )
-        driver_web3 = CurveDriver(block_stream, session, w3, proxy=CurveDriver.Proxy.Web3)
+        driver = CurveDriver(block_stream, session, w3)
 
-        proxy_thegraph = driver_thegraph.create_lp_sync_proxy(
-            await driver_thegraph.get_lp_ids(token_ids)
+        lp_ids = await driver.get_lp_ids(token_ids)
+        proxy_thegraph = driver.create_lp_sync_proxy(
+            lp_ids,
+            LPDriver.LPSyncProxyDataSource.TheGraph
         )
-        proxy_web3 = driver_web3.create_lp_sync_proxy(
-            await driver_web3.get_lp_ids(token_ids)
+        proxy_web3 = driver.create_lp_sync_proxy(
+            lp_ids,
+            LPDriver.LPSyncProxyDataSource.Web3
         )
 
         await assert_equivalent_proxies(w3, proxy_thegraph, proxy_web3, block_stream, 10)
 
 
 asyncio.run(test_uniswap_v3())
+# asyncio.run(test_curve())

@@ -137,7 +137,7 @@ class LPSyncProxyFromAsyncProxy(LPSyncProxy):
             except RuntimeError as err:
                 logger.warning(
                     f'Could not obtain state for block {block_number} from '
-                    f'underlying lp async proxy {err}. Retrying in 5 seconds ...'
+                    f'underlying lp async proxy:\n\t{err}\n\tRetrying in 5 seconds ...'
                 )
                 await asyncio.sleep(5)
 
