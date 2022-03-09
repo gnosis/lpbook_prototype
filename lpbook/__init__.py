@@ -2,16 +2,15 @@ import asyncio
 from enum import Enum
 import logging
 from abc import ABC, abstractmethod
-from typing import Any, Dict, List, Union
+from typing import Any, Dict, List
 
-from lpbook.util import LP
+from lpbook.util import LP, traced
 from lpbook.web3 import Block
 from lpbook.web3.block_stream import BlockStream
 from lpbook.web3.RecentEventLog import RecentEventLog
 from lpbook.error import CacheMissError
 
 logger = logging.getLogger(__name__)
-
 
 
 class RecentStateCache:
@@ -25,7 +24,9 @@ class RecentStateCache:
         try:
             i = self.recent_block_numbers.index(block_number)
         except ValueError:
-            raise CacheMissError(f'Could not find block {block_number} in recent state cache.')
+            raise CacheMissError(
+                f'Could not find block {block_number} in recent state cache.'
+            )
         return self.recent_block_hashes[i]
 
     def get_at_block_number(self, block_number: int) -> Any:
@@ -35,7 +36,9 @@ class RecentStateCache:
         try:
             return self.state_by_block_hash[block_hash]
         except KeyError:
-            raise CacheMissError(f'Cound not find block {block_hash} in recent state cache.')
+            raise CacheMissError(
+                f'Cound not find block {block_hash} in recent state cache.'
+            )
 
     def get_at_block(self, block_number: int = None, block_hash: str = None) -> Any:
         """Returns the state at block if given, otherwise return most recently added."""
@@ -80,10 +83,11 @@ class LPAsyncProxy(ABC):
 
 
 class LPSyncProxy(ABC):
-    """Synchronous proxy to a collection of LP states indexed by block number/hash .
+    """Synchronous proxy to a collection of LP states indexed by block number/hash.
 
     This proxy will be kept synchronized with the proxied data structure. Accessing state
-    through this class will either be quick, or raise an error if the proxy is out of sync.
+    through this class will either be quick, or raise an error if the proxy is
+    out of sync.
     """
     @abstractmethod
     def __call__(self, block_number: int = None) -> Dict[str, LP]:
@@ -145,6 +149,7 @@ class LPSyncProxyFromAsyncProxy(LPSyncProxy):
 
     async def start(self) -> None:
         pass
+
     async def stop(self) -> None:
         pass
 
@@ -162,9 +167,8 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         self.event_log = RecentEventLog(web3_client, event_stream)
         self.checkpoint = None
 
+    @traced(logger, 'Starting LPFromInitialStatePlusChangesProxy')
     async def start(self) -> None:
-        logger.debug(f"Starting {self} ...")
-
         # since async_proxy might not be up to date,
         # it is what defines the start block.
         latest_block = await self.async_proxy.latest_block()
@@ -175,16 +179,12 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         self.event_log.start(
             self.lp_ids,
             self.events,
-            start_block_number,
-            start_block_hash
+            start_block_number
         )
 
-        logger.debug(f"Starting {self} ... done")
-
+    @traced(logger, 'Stopping LPFromInitialStatePlusChangesProxy')
     def stop(self) -> None:
-        logger.debug(f"Stopping {self} ...")
         self.event_log.stop()
-        logger.debug(f"Stopping {self} ... done")
 
     def __call__(self, block_number: int = None, block_hash: str = None) -> Dict[str, LP]:
         """Returns a list of lps with state at (the end of) given block.
@@ -192,23 +192,25 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         If block hash is specified, then return lps state at that block if possible,
         otherwise will raise a CacheMissError.
 
-        If block number is specified, then return lps state at that block if possible, 
+        If block number is specified, then return lps state at that block if possible,
         otherwise will raise a CacheMissError.
         """
 
-        logger.debug(f"Querying {self} (block={block_number}) ...")
-            
-        state = self.get_state(self.checkpoint, self.event_log(block_number=block_number, block_hash=block_hash))
+        logger.debug(f'Querying {self} (block={block_number}) ...')
+
+        events_since_checkpoint = self.event_log(block_number, block_hash)
+        state = self.get_state(self.checkpoint, events_since_checkpoint)
 
         # Update checkpoint to computed state to save extra computation and memory on
         # future calls.
         if self.event_log.block_count > self.MAX_NR_BLOCKS_TO_CHECKPOINT:
-            logger.debug("Updating checkpoint.")
-            nr_blocks_to_free = self.event_log.block_count - self.MAX_NR_BLOCKS_TO_CHECKPOINT
+            logger.debug('Updating checkpoint.')
+            nr_blocks_to_free = self.event_log.block_count - \
+                self.MAX_NR_BLOCKS_TO_CHECKPOINT
             min_start_block_number = self.event_log.start_block_number + nr_blocks_to_free
-            self.checkpoint = self.get_state(self.checkpoint, self.event_log(block_number=min_start_block_number - 1))
+            events_since_checkpoint = self.event_log(min_start_block_number - 1)
+            self.checkpoint = self.get_state(self.checkpoint, events_since_checkpoint)
             self.event_log.update_start_block(min_start_block_number)
-            #self.checkpoint_block_hash = self.event_log.start_block_hash
 
         return state
 
@@ -234,4 +236,3 @@ class LPDriver(ABC):
     @abstractmethod
     async def get_lp_ids(self, token_ids: List[str]) -> List[str]:
         """Collects addresses of lps involving given tokens."""
-

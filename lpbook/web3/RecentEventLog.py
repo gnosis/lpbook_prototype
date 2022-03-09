@@ -2,6 +2,7 @@ import logging
 from typing import Any, List
 
 from lpbook.error import CacheMissError
+from lpbook.util import traced
 
 from .event_stream import EventStream
 from web3.contract import ContractEvent
@@ -20,16 +21,18 @@ class RecentEventLog:
 
         self.events = []
         self.start_block_number = None
-        self.start_block_hash = None
 
     def process_new_event(self, event):
-        logger.debug(f"Processing event {event} ....")
+        logger.debug(f'Processing event {event} ...')
 
         assert \
             len(self.events) == 0 or \
             event in self.events or \
             event.blockNumber > self.events[-1].blockNumber or \
-            (event.blockNumber == self.events[-1].blockNumber and event.logIndex > self.events[-1].logIndex) or \
+            (
+                event.blockNumber == self.events[-1].blockNumber and
+                event.logIndex > self.events[-1].logIndex
+            ) or \
             event.removed
 
         if event.removed and event in self.events:
@@ -41,21 +44,27 @@ class RecentEventLog:
             assert \
                 len(self.events) == 0 or \
                 event.blockNumber > self.events[-1].blockNumber or \
-                (event.blockNumber == self.events[-1].blockNumber and event.logIndex > self.events[-1].logIndex)
+                (
+                    event.blockNumber == self.events[-1].blockNumber and
+                    event.logIndex > self.events[-1].logIndex
+                )
+
             self.events.append(event)
 
-            # This could happen if all events are removed. To avoid it, pass an old enough from_block 
-            # to the "start" method.
+            # This could happen if all events are removed. To avoid it, pass an old enough
+            # from_block to the "start" method.
             if event.blockNumber < self.start_block_number:
-                logger.critical(f'{self} found in an possibly inconsistent state. Exiting ...')
+                logger.critical(
+                    f'{self} found in an possibly inconsistent state. Exiting ...'
+                )
                 assert False
 
+    @traced(logger, 'Starting RecentEventLog')
     def start(
         self,
         addresses: List[str],
         events: List[ContractEvent],
-        start_block_number: int,
-        start_block_hash: str,
+        start_block_number: int
     ) -> None:
         """Sets start_block to given block and starts collecting the delta asynchronously.
 
@@ -63,8 +72,6 @@ class RecentEventLog:
         orphan. There are some efforts to detect this case, but they are not complete.
         """
         self.start_block_number = start_block_number
-        self.start_block_hash = start_block_hash
-        logger.debug(f"Starting {self} ...")
         self.event_stream.subscribe(
             self.process_new_event,
             addresses,
@@ -74,7 +81,7 @@ class RecentEventLog:
 
     def stop(self) -> None:
         self.event_stream.unsubscribe(self.process_new_event)
-        self.start_block_number = self.start_block_hash = None
+        self.start_block_number = None
         logger.debug('Stopped {self}')
 
     def update(self, addresses: List[str], events: List[ContractEvent]):
@@ -86,7 +93,12 @@ class RecentEventLog:
         # NOTE: we can do this since process_event above ensures de-duplication of events.
         # The cur_block_number + 1 alternative does not look robust to race
         # conditions due to chain reorgs.
-        self.event_stream.change_subscription(self.process_new_event, addresses, events, cur_block_hash)
+        self.event_stream.change_subscription(
+            self.process_new_event,
+            addresses,
+            events,
+            cur_block_hash
+        )
 
     def __call__(self, block_number=None, block_hash=None) -> List[Any]:
         """Returns deltas from self.get_start_block() up to (including) given block.
@@ -95,21 +107,18 @@ class RecentEventLog:
         Note: the block range for which deltas are returned is [start_block, block].
         """
         if block_hash is not None:
-            if block_hash not in self.event_stream.block_hashes:
-                raise CacheMissError(f"No events for block {block_hash} in cache.")
-            block_number = self.event_stream.get_block_number_from_hash(block_hash)
+            block_number = self.web3_client.eth.get_block(block_hash).number
         if block_number is not None:
-            if block_number not in self.event_stream.block_numbers:
-                raise CacheMissError(f"No events for block {block_number} in cache.")
+            if block_number < self.start_block_number or \
+               block_number > self.event_stream.last_block_number:
+                raise CacheMissError(f'No events for block {block_number} in cache.')
             return [e for e in self.events if e.blockNumber <= block_number]
         return self.events
 
     @property
     def block_count(self) -> int:
         """Get number of blocks in the log."""
-        if len(self.events) == 0:
-            return 0
-        return self.events[-1].blockNumber - self.events[0].blockNumber + 1
+        return self.event_stream.last_block_number - self.start_block_number + 1
 
     def update_start_block(self, new_start_block_number) -> None:
         """Updates start block monotonically.
@@ -121,6 +130,4 @@ class RecentEventLog:
         POST: self.start_block() >= new_start_block
         """
         self.events = [e for e in self.events if e.blockNumber >= new_start_block_number]
-        assert len(self.events) > 0
-        self.start_block_number = self.events[0].blockNumber
-        self.start_block_hash = self.events[0].blockHash.hex()
+        self.start_block_number = new_start_block_number

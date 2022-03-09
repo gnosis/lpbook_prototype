@@ -1,22 +1,21 @@
 
 import asyncio
-from enum import Enum
 import logging
-from copy import deepcopy
 from dataclasses import dataclass
 from decimal import MAX_EMAX, MAX_PREC, MIN_EMIN, Context
 from decimal import Decimal as D
 from decimal import setcontext
+from enum import Enum
 from functools import cache
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, List
 
 import aiohttp
+from lpbook import (LPAsyncProxy, LPDriver, LPSyncProxy,
+                    LPSyncProxyFromAsyncProxy)
 from lpbook.lps.curve.subgraph import CurveGraphQLClient
-from lpbook import (CacheMissError, LPSyncProxyFromAsyncProxy,
-                          LPSyncProxy, LPDriver, LPAsyncProxy, RecentStateCache)
 from lpbook.util import LP, Token
-from lpbook.web3 import create_token_from_web3, Block
+from lpbook.web3 import Block, create_token_from_web3
 from lpbook.web3.block_stream import BlockStream
 from web3.constants import ADDRESS_ZERO
 
@@ -49,8 +48,8 @@ class Curve(LP):
     @property
     def state(self) -> Dict:
         return {
-            "amplification_parameter": self.amplification_parameter,
-            "fee": self.fee,
+            'amplification_parameter': self.amplification_parameter,
+            'fee': self.fee,
         }
 
 
@@ -62,7 +61,7 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
         self.lp_ids = lp_ids
         self.client = web3_client
 
-        with open(Path(__file__).parent / "artifacts" / "registry.abi", "r") as f:
+        with open(Path(__file__).parent / 'artifacts' / 'registry.abi', 'r') as f:
             registry_contract_abi = f.read()
             registry_chksum = web3_client.toChecksumAddress(
                 self.REGISTRY_CONTRACT_ADDRESS
@@ -118,9 +117,17 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
             fee=D(parameters[PARAMETER_FEE_IDX])/D(1e10),
         )
 
-    async def __call__(self, block_number: int = None, block_hash: str = None) -> Dict[str, LP]:
+    async def __call__(
+        self,
+        block_number: int = None,
+        block_hash: str = None
+    ) -> Dict[str, LP]:
         short_block_hash = block_hash[:8] if block_hash is not None else None
-        logger.debug(f"Retrieving curve state from blockchain at block {block_number}/{short_block_hash} ...")
+
+        logger.debug(
+            f'Retrieving curve state from blockchain at block '
+            f'{block_number}/{short_block_hash} ...'
+        )
 
         state = {}
 
@@ -177,8 +184,8 @@ class CurveTheGraphAsyncProxy(LPAsyncProxy):
     ) -> Dict[str, LP]:
         shortened_block_hash = block_hash[:8] if block_hash is not None else None
         logger.debug(
-            "Retrieving curve state from TheGraph at block "
-            f"{block_number}/{shortened_block_hash} ..."
+            'Retrieving curve state from TheGraph at block '
+            f'{block_number}/{shortened_block_hash} ...'
         )
 
         block = {}
@@ -189,7 +196,7 @@ class CurveTheGraphAsyncProxy(LPAsyncProxy):
 
         extra_kwargs = {}
         if len(block) > 0:
-            extra_kwargs = {"block": block}
+            extra_kwargs = {'block': block}
 
         # this is to workaround a current thegraph bug (already reported and confirmed),
         # where thegraph replies with arbitrary data when the passed block number/hash is
@@ -197,8 +204,11 @@ class CurveTheGraphAsyncProxy(LPAsyncProxy):
         if block_number is not None:
             latest_block_number = (await self.latest_block()).number
             if block_number > latest_block_number:
-                logger.debug(f"{self} is lagging behind {block_number - latest_block_number} blocks.")
-                raise RuntimeError(f"Attempt to retrieve a block too recent for {self}")
+                logger.debug(
+                    f'{self} is lagging behind '
+                    f'{block_number - latest_block_number} blocks.'
+                )
+                raise RuntimeError(f'Attempt to retrieve a block too recent for {self}')
 
         lp_filter = {'id_in': self.lp_ids}
         thegraph_data = [
@@ -210,7 +220,7 @@ class CurveTheGraphAsyncProxy(LPAsyncProxy):
             for thegraph_lp_data in thegraph_data
         }
 
-        #logger.debug(state)
+        # logger.debug(state)
         return state
 
 

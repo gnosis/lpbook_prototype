@@ -8,6 +8,7 @@ from functools import partial
 import asyncio
 import aiohttp
 
+
 class UniV3GraphQLClient(GraphQLClient):
     url = 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3'
 
@@ -34,14 +35,14 @@ class UniV3GraphQLClient(GraphQLClient):
         op = Operation(schema.Query)
         pools_filter = {**pools_filter}
         if last_id is not None:
-            pools_filter.update({"id_gt": last_id})
+            pools_filter.update({'id_gt': last_id})
 
         pools = op.pools(
             where=pools_filter,
             first=first,
             **kwargs
         )
-        
+
         if field_setter is None:
             field_setter = self.set_pool_state_fields
 
@@ -53,12 +54,14 @@ class UniV3GraphQLClient(GraphQLClient):
 
     def get_pools_state(self, pools_filter=dict(), field_setter=None, **kwargs):
         """Get pairs."""
-        return self.paginated_on_id(partial(self.get_pools_page, pools_filter, field_setter, **kwargs))
+        return self.paginated_on_id(
+            partial(self.get_pools_page, pools_filter, field_setter, **kwargs)
+        )
 
     async def get_ticks_page(self, ticks_filter, last_id, first, **kwargs):
         op = Operation(schema.Query)
         if last_id is not None:
-            ticks_filter.update({"id_gt": last_id})
+            ticks_filter.update({'id_gt': last_id})
         ticks = op.ticks(
             where=ticks_filter,
             first=first,
@@ -74,7 +77,7 @@ class UniV3GraphQLClient(GraphQLClient):
 
     def get_ticks(self, ticks_filter, **kwargs):
         """Get pool ticks."""
-        ticks_filter.update({"liquidity_net_gt": 0})
+        ticks_filter.update({'liquidity_net_gt': 0})
         return self.paginated_on_id(partial(self.get_ticks_page, ticks_filter, **kwargs))
 
     async def get_pool_state(self, pool_id, **kwargs):
@@ -83,7 +86,7 @@ class UniV3GraphQLClient(GraphQLClient):
             id=pool_id,
             **kwargs
         )
-        
+
         self.set_pool_state_fields(pool)
 
         data = await self.get_data(op, 'pool')
@@ -92,18 +95,25 @@ class UniV3GraphQLClient(GraphQLClient):
 
     async def get_pool_state_and_ticks(self, pool_id, **kwargs):
         async def collect_all_ticks():
-            return [tick async for tick in self.get_ticks({"pool": pool_id}, **kwargs)]
-            
+            return [tick async for tick in self.get_ticks({'pool': pool_id}, **kwargs)]
+
         pool_ticks = await asyncio.gather(
             self.get_pool_state(pool_id, **kwargs),
             collect_all_ticks(),
         )
         pool, ticks = pool_ticks[0], pool_ticks[1]
-        pool["ticks"] = ticks
+        pool['ticks'] = ticks
         return pool
 
     async def get_pools_state_and_ticks(self, pools_filter, ticks_filter, **kwargs):
-        pools = [pool async for pool in self.get_pools_state(pools_filter, field_setter=None, **kwargs)]
+        pools = [
+            pool
+            async for pool in self.get_pools_state(
+                pools_filter,
+                field_setter=None,
+                **kwargs
+            )
+        ]
         pool_ids = [pool.id for pool in pools]
 
         ticks_filter = {**ticks_filter}
@@ -121,7 +131,7 @@ class UniV3GraphQLClient(GraphQLClient):
             ticks_by_pool[pool_id].append(tick)
 
         for pool in pools:
-            pool["ticks"] = ticks_by_pool.get(pool.id, [])
+            pool['ticks'] = ticks_by_pool.get(pool.id, [])
 
         return pools
 

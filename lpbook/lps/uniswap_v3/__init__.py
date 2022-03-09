@@ -1,7 +1,6 @@
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
-from enum import Enum
 from pathlib import Path
 from typing import Any, Dict, List
 
@@ -44,15 +43,15 @@ class UniV3(LP):
     @property
     def state(self) -> Dict:
         return {
-            "sqrt_price": self.sqrt_price,
-            "liquidiy": self.liquidity,
-            "tick": self.tick,
-            "liquidity_net": self.liquidity_net
+            'sqrt_price': self.sqrt_price,
+            'liquidiy': self.liquidity,
+            'tick': self.tick,
+            'liquidity_net': self.liquidity_net
         }
 
 
 class UniV3TheGraphProxy(LPAsyncProxy):
-    """"Loads the state of liquidity from TheGraph."""
+    """Loads the state of liquidity from TheGraph."""
     def __init__(self, lp_ids, uniswap_v3_gql_client):
         assert len(lp_ids) >= 1
         self.lp_ids = lp_ids
@@ -74,16 +73,26 @@ class UniV3TheGraphProxy(LPAsyncProxy):
             sqrt_price=int(thegraph_data.sqrt_price),
             liquidity=int(thegraph_data.liquidity),
             tick=int(thegraph_data.tick),
-            liquidity_net={int(tick.tick_idx): int(tick.liquidity_net) for tick in thegraph_data.ticks}
+            liquidity_net={
+                int(tick.tick_idx): int(tick.liquidity_net)
+                for tick in thegraph_data.ticks
+            }
         )
 
     async def latest_block(self) -> Block:
         block = await self.client.get_last_block()
         return Block(number=block.number, hash=str(block.hash))
 
-    async def __call__(self, block_number: int = None, block_hash: str = None) -> Dict[str, LP]:
+    async def __call__(
+        self,
+        block_number: int = None,
+        block_hash: str = None
+    ) -> Dict[str, LP]:
         shortened_block_hash = block_hash[:8] if block_hash is not None else None
-        logger.debug(f"Retrieving uniswap V3 state from TheGraph at block {block_number}/{shortened_block_hash} ...")
+        logger.debug(
+            'Retrieving uniswap V3 state from TheGraph at block '
+            f'{block_number}/{shortened_block_hash} ...'
+        )
 
         block = {}
         if block_hash is not None:
@@ -92,7 +101,7 @@ class UniV3TheGraphProxy(LPAsyncProxy):
             block.update(number=block_number)
         extra_kwargs = {}
         if len(block) > 0:
-            extra_kwargs = {"block": block}
+            extra_kwargs = {'block': block}
 
         # this is to workaround a current thegraph bug (already reported and confirmed),
         # where thegraph replies with arbitrary data when the passed block number/hash is
@@ -100,20 +109,33 @@ class UniV3TheGraphProxy(LPAsyncProxy):
         if block_number is not None:
             latest_block_number = (await self.latest_block()).number
             if block_number > latest_block_number:
-                logger.debug(f"{self} is lagging behind {block_number - latest_block_number} blocks.")
-                raise RuntimeError(f"Attempt to retrieve a block too recent for {self}")
+                logger.debug(
+                    f'{self} is lagging behind '
+                    f'{block_number - latest_block_number} blocks.'
+                )
+                raise RuntimeError(f'Attempt to retrieve a block too recent for {self}')
 
         # Perform a more efficient query if we're tracking a single LP.
         if len(self.lp_ids) == 1:
             lp_id = self.lp_ids[0]
-            thegraph_lp_data = await self.client.get_pool_state_and_ticks(lp_id, **extra_kwargs)
+            thegraph_lp_data = await self.client.get_pool_state_and_ticks(
+                lp_id,
+                **extra_kwargs
+            )
             state = {lp_id: self.create_from_thegraph(thegraph_lp_data)}
         else:
-            lp_filter = {"id_in": self.lp_ids}
-            thegraph_data = await self.client.get_pools_state_and_ticks(lp_filter, {}, **extra_kwargs)
-            state = {thegraph_lp_data.id: self.create_from_thegraph(thegraph_lp_data) for thegraph_lp_data in thegraph_data}
+            lp_filter = {'id_in': self.lp_ids}
+            thegraph_data = await self.client.get_pools_state_and_ticks(
+                lp_filter,
+                {},
+                **extra_kwargs
+            )
+            state = {
+                thegraph_lp_data.id: self.create_from_thegraph(thegraph_lp_data)
+                for thegraph_lp_data in thegraph_data
+            }
 
-        #logger.debug(state)
+        # logger.debug(state)
         return state
 
 
@@ -122,7 +144,7 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
 
     def __init__(self, lp_ids, async_proxy, event_stream, web3_client):
         # read abi from same directory as this file.
-        with open(Path(__file__).parent / "artifacts" / "uniswap_v3.abi", "r") as f:
+        with open(Path(__file__).parent / 'artifacts' / 'uniswap_v3.abi', 'r') as f:
             contract_abi = f.read()
         UniV3 = web3_client.eth.contract(abi=contract_abi)
 
@@ -137,7 +159,7 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
     def get_state(self, prev_state: Dict[str, LP], changes: List[Any]) -> Dict[str, LP]:
         """Assembles state from previous state and updates."""
 
-        cur_state = deepcopy(prev_state) 
+        cur_state = deepcopy(prev_state)
 
         for d in changes:
             lp_id = d.address.lower()
@@ -157,7 +179,7 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
                 # only need to update it if the new position includes the recent tick.
                 if lp_cur_state.tick <= tick_lower and lp_cur_state.tick > tick_upper:
                     lp_cur_state.liquidity += d.args.amount
-                
+
                 if tick_lower not in lp_cur_state.liquidity_net.keys():
                     lp_cur_state.liquidity_net[tick_lower] = 0
 
@@ -205,7 +227,7 @@ class UniV3Driver(LPDriver):
         self.graphql_client = UniV3GraphQLClient(session)
 
     def type(self) -> str:
-        return "UniswapV3"
+        return 'UniswapV3'
 
     def create_lp_sync_proxy(
         self,

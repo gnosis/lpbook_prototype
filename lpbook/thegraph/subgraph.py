@@ -1,5 +1,3 @@
-#from sgqlc.endpoint.http import HTTPEndpoint
-
 import asyncio
 import logging
 
@@ -9,8 +7,10 @@ from ..util.aiohttp_endpoint import AIOHTTPEndpoint
 
 logger = logging.getLogger(__name__)
 
+
 class GraphQLClientError(RuntimeError):
     pass
+
 
 class GraphQLClient:
     page_size = 500
@@ -43,16 +43,21 @@ class GraphQLClient:
                 yield i
             last_id = cur_page[-1].id
 
-    async def get_data(self, op, must_have_key = None, keep_trying=False):
+    async def get_data(self, op, must_have_key=None, keep_trying=False):
         while True:
             data = await self.endpoint(op)
 
-            if 'errors' not in data.keys() and (must_have_key is None or must_have_key in data['data'].keys()):
+            if 'errors' not in data.keys() and (
+                must_have_key is None or must_have_key in data['data'].keys()
+            ):
                 break
             if not keep_trying:
-                raise GraphQLClientError(f"Error accessing thegraph: {str(data['errors'])}")
-            logger.warn("Error getting data from graphql endpoint. Retrying in 2 secs ....")
-            logger.debug("errors: " + str(data['errors']))
+                raise GraphQLClientError(
+                    f'Error accessing thegraph: {str(data["errors"])}'
+                )
+            logger.warn(
+                'Error getting data from graphql endpoint. Retrying in 2 secs ...'
+            )
+            logger.debug('errors: ' + str(data['errors']))
             await asyncio.sleep(2)
         return data
-

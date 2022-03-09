@@ -5,8 +5,8 @@ from lpbook.thegraph.subgraph import GraphQLClient
 
 from functools import partial
 
-import asyncio
 import aiohttp
+
 
 class CurveGraphQLClient(GraphQLClient):
     url = 'https://api.thegraph.com/subgraphs/name/curvefi/curve'
@@ -33,14 +33,14 @@ class CurveGraphQLClient(GraphQLClient):
         op = Operation(schema.Query)
         pools_filter = {**pools_filter}
         if last_id is not None:
-            pools_filter.update({"id_gt": last_id})
+            pools_filter.update({'id_gt': last_id})
 
         pools = op.pools(
             where=pools_filter,
             first=first,
             **kwargs
         )
-        
+
         if field_setter is None:
             field_setter = self.set_pool_state_fields
 
@@ -51,7 +51,9 @@ class CurveGraphQLClient(GraphQLClient):
         return query.pools if hasattr(query, 'pools') else []
 
     def get_pools_state(self, pools_filter=dict(), field_setter=None, **kwargs):
-        return self.paginated_on_id(partial(self.get_pools_page, pools_filter, field_setter, **kwargs))
+        return self.paginated_on_id(
+            partial(self.get_pools_page, pools_filter, field_setter, **kwargs)
+        )
 
     async def get_last_block(self):
         op = Operation(schema.Query)

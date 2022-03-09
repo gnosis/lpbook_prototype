@@ -1,13 +1,12 @@
 import asyncio
 import datetime
 import logging
-from dataclasses import dataclass
-from typing import FrozenSet, List
+from typing import List
 
-#from lpbook import get_lps_from_state
-from lpbook.util import LP
+from lpbook.util import LP, traced
 
 logger = logging.getLogger(__name__)
+
 
 class LPCache:
     POOL_MAX_UNUSED_AGE = datetime.timedelta(days=30)
@@ -23,9 +22,9 @@ class LPCache:
 
     def get_lps_involving_tokens(self, token_ids: set, block_number=None) -> List[LP]:
         """Return all LPs involving token_ids.
-        
-        If block is given, then the lp's state will reflect that block if that block is in cache, otherwise
-        it will raise a CacheMissError.
+
+        If block is given, then the lp's state will reflect that block if that block is
+        in cache, otherwise it will raise a CacheMissError.
         """
         now = datetime.datetime.now()
         for t in token_ids:
@@ -41,37 +40,37 @@ class LPCache:
                     all_lps.append(lp)
 
         if len(all_lps) == 0:
-            logger.warning(f"Cache miss for token_ids {token_ids}.")
+            logger.warning(f'Cache miss for token_ids {token_ids}.')
 
         return all_lps
 
+    @traced(logger, 'Running lp cache')
     async def run(self):
-        logger.debug("Starting lp cache ...")
         while True:
             now = datetime.datetime.now()
             most_requested_tokens = {
-                t 
+                t
                 for t, dt in self.token_last_request_datetime.items()
                 if now - dt <= self.POOL_MAX_UNUSED_AGE
             }
 
-            # Refresh if a) cache doesn't equal most requested tokens 
+            # Refresh if a) cache doesn't equal most requested tokens
             # or b) if last cache refresh was too long ago.
             # Condition a) handles cache misses and makes sure it is not
             # tracking unused tokens. Condition b) is required since new
             # lps may have been created/deleted for the recently cached
             # tokens since last refresh.
             if (
-                len(most_requested_tokens) > 0 and 
+                len(most_requested_tokens) > 0 and
                 self.cached_tokens != most_requested_tokens
             ) or self.last_refresh_datetime is None or \
-                now - self.last_refresh_datetime > self.POOL_MAX_CACHED_AGE:
+                    now - self.last_refresh_datetime > self.POOL_MAX_CACHED_AGE:
                 await self.refresh(most_requested_tokens)
-        
+
             await asyncio.sleep(self.POOL_MIN_CACHED_AGE.total_seconds())
 
     async def refresh(self, tokens):
-        logger.debug(f"Refreshing lp cache for {len(tokens)} tokens ....")
+        logger.debug(f'Refreshing lp cache for {len(tokens)} tokens ....')
         now = datetime.datetime.now()
 
         # stop all recently syncing lps
