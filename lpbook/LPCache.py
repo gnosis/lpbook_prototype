@@ -20,6 +20,7 @@ class LPCache:
         self.token_last_request_datetime = {}
         self.last_refresh_datetime = None
         self.lp_sync_proxies = {}
+        self.lp_sync_pool_ids = {}
 
     def get_lps_trading_tokens(self, token_ids: set, block_number=None) -> List[LP]:
         """Return all LPs that trade at least two tokens in token_ids.
@@ -75,28 +76,45 @@ class LPCache:
         logger.debug(f'Refreshing LP cache for {len(tokens)} tokens ...')
         now = datetime.datetime.now()
 
-        lp_sync_proxies = {}
+        new_lp_sync_proxies = {}
+        new_lp_sync_pool_ids = {}
+
         if len(tokens) > 0:
             for d in self.lp_drivers:
                 lp_ids = await d.get_lp_ids(tokens)
+
                 if len(lp_ids) == 0:
                     continue
+
+                # optimization: no need to reset proxies that return
+                # the same set of pools as last time.
+                if set(lp_ids) == self.lp_sync_pool_ids.get(d.type(), set()):
+                    new_lp_sync_proxies[d.type()] = self.lp_sync_proxies[d.type()]
+                    new_lp_sync_pool_ids[d.type()] = set(lp_ids)
+                    continue
+
                 lp_sync_proxy = d.create_lp_sync_proxy(
                     lp_ids,
                     LPDriver.LPSyncProxyDataSource.Default
                 )
-                lp_sync_proxies[d.type()] = lp_sync_proxy
+                new_lp_sync_proxies[d.type()] = lp_sync_proxy
+                new_lp_sync_pool_ids[d.type()] = lp_ids
 
-            if len(lp_sync_proxies) > 0:
+            # Start new proxies.
+            if len(new_lp_sync_proxies) > 0:
                 await asyncio.gather(*[
                     lp_sync_proxy.start()
-                    for lp_sync_proxy in lp_sync_proxies.values()
+                    for lp_sync_proxy in new_lp_sync_proxies.values()
+                    if lp_sync_proxy not in self.lp_sync_proxies.values()
                 ])
 
-        # stop all currently syncing lps
-        for s in self.lp_sync_proxies:
-            s.stop()
+        # Stop all current proxies that we won't keep
+        for sync_proxy in self.lp_sync_proxies.values():
+            if sync_proxy not in new_lp_sync_proxies.values():
+                sync_proxy.stop()
 
-        self.lp_sync_proxies = lp_sync_proxies
+        # Replace old with new proxies.
+        self.lp_sync_proxies = new_lp_sync_proxies
+        self.lp_sync_pool_ids = new_lp_sync_pool_ids
         self.cached_tokens = tokens
         self.last_refresh_datetime = now
