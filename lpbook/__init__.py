@@ -221,6 +221,7 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
 
 class LPDriver(ABC):
     class LPSyncProxyDataSource(Enum):
+        Default = 0
         TheGraph = 1
         Web3 = 2
         TheGraphAndWeb3 = 3

@@ -60,25 +60,7 @@ class Token:
     def __hash__(self):
         return self.address.__hash__()
 
-
-class LP:
-    @abstractproperty
-    def uid(self) -> str:
-        """Returns a unique identifier for the LP (like its address)."""
-
-    @abstractproperty
-    def type(self) -> str:
-        """Returns the type of lp (UniswapV2, Curve, etc.)."""
-
-    @abstractproperty
-    def tokens(self) -> List[Token]:
-        """Returns a list of tokens pooled by this LP."""
-
-    @abstractproperty
-    def state(self) -> Dict:
-        """Returns the internal state of the LP (e.g. the two reserves for uniswapV2)."""
-
-
+        
 # Recursively convert an object to a dict
 # https://stackoverflow.com/questions/1036409/recursively-convert-python-object-graph-to-dictionary
 def to_dict(obj, classkey=None):
@@ -105,15 +87,46 @@ def to_dict(obj, classkey=None):
 
 
 # Recursively wrap all numbers as string.
-def stringify(obj):
+def stringify_numbers(obj):
     if isinstance(obj, dict):
         data = {}
         for (k, v) in obj.items():
-            data[stringify(k)] = stringify(v)
+            data[stringify_numbers(k)] = stringify_numbers(v)
         return data
     elif isinstance(obj, str):
         return obj
     elif isinstance(obj, float) or isinstance(obj, int):
         return str(obj)
+    elif isinstance(obj, list):
+        return [stringify_numbers(element) for element in obj]
     else:
+        print(f"can't stringify {obj}")
         assert(False)   # TODO: fill in more cases
+
+
+class LP:
+    @abstractproperty
+    def uid(self) -> str:
+        """Returns a unique identifier for the LP (like its address)."""
+
+    @abstractproperty
+    def type(self) -> str:
+        """Returns the type of lp (UniswapV2, Curve, etc.)."""
+
+    @abstractproperty
+    def tokens(self) -> List[Token]:
+        """Returns a list of tokens pooled by this LP."""
+
+    @abstractproperty
+    def state(self) -> Dict:
+        """Returns the internal state of the LP (e.g. the two reserves for uniswapV2)."""
+
+    def marshall(self) -> Dict:
+        """Encodes itself to a dict with a common API."""
+        api = {
+            'address': self.uid,
+            'type': self.type,
+            'tokens': self.tokens,
+            'state': self.state
+        }
+        return stringify_numbers(to_dict(api))

@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class Curve(LP):
-    """Represents a Curve LP."""
+    """Curve LP."""
     address: str
     _tokens: List[Token]
     amplification_parameter: int
@@ -50,7 +50,6 @@ class Curve(LP):
             'amplification_parameter': self.amplification_parameter,
             'fee': self.fee,
         }
-
 
 class CurveWeb3AsyncProxy(LPAsyncProxy):
     """"Proxies the state of the curve LP through web3."""
@@ -242,9 +241,13 @@ class CurveDriver(LPDriver):
     def create_lp_sync_proxy(
         self,
         lp_ids: List[str],
-        data_source: LPDriver.LPSyncProxyDataSource
+        data_source: LPDriver.LPSyncProxyDataSource =
+            LPDriver.LPSyncProxyDataSource.Default
     ) -> LPSyncProxy:
-        if data_source == LPDriver.LPSyncProxyDataSource.Web3:
+        if data_source in [
+            LPDriver.LPSyncProxyDataSource.Default,
+            LPDriver.LPSyncProxyDataSource.Web3
+        ]:
             async_proxy = CurveWeb3AsyncProxy(lp_ids, self.web3_client)
         else:
             assert data_source == LPDriver.LPSyncProxyDataSource.TheGraph

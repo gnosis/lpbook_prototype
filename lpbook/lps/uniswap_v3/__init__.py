@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 @dataclass
 class UniV3(LP):
-    """Represents a UniswapV3 LP."""
+    """UniswapV3 LP."""
     address: str
     token0: Token
     token1: Token
@@ -48,6 +48,7 @@ class UniV3(LP):
             'tick': self.tick,
             'liquidity_net': self.liquidity_net
         }
+
 
 
 class UniV3TheGraphProxy(LPAsyncProxy):
@@ -232,10 +233,14 @@ class UniV3Driver(LPDriver):
     def create_lp_sync_proxy(
         self,
         lp_ids: List[str],
-        data_source: LPDriver.LPSyncProxyDataSource
+        data_source: LPDriver.LPSyncProxyDataSource =
+            LPDriver.LPSyncProxyDataSource.Default
     ) -> LPSyncProxy:
         async_proxy = UniV3TheGraphProxy(lp_ids, self.graphql_client)
-        if data_source == LPDriver.LPSyncProxyDataSource.TheGraphAndWeb3:
+        if data_source in [
+            LPDriver.LPSyncProxyDataSource.Default,
+            LPDriver.LPSyncProxyDataSource.TheGraphAndWeb3
+        ]:
             sync_proxy = UniV3TheGraphAndWeb3Proxy(
                 lp_ids,
                 async_proxy,
