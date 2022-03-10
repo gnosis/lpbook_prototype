@@ -8,6 +8,15 @@ pip install -r requirements.txt
 
 # Run
 
+The environment variables HTTP_WEB3_URL and WS_WEB3_URL need to be set (an .env file is ok too). They should point to the http and websocket endpoint of an ethereum node, e.g.
+
+```
+HTTP_WEB3_URL=https://mainnet.infura.io/v3/{INFURA_KEY}
+WS_WEB3_URL=wss://mainnet.infura.io/ws/v3/{INFURA_KEY}
+```
+
+Run the server with,
+
 ```bash
 . venv/bin/activate
 python -m lpbook.server.server
