@@ -25,6 +25,14 @@ class RecentEventLog:
     def process_new_event(self, event):
         logger.debug(f'Processing event {event} ...')
 
+        print(event.removed)
+        print(len(self.events))
+        print(event.blockNumber)
+        print(event.logIndex)
+        if len(self.events) > 0:
+            print(self.events[-1].blockNumber)
+            print(self.events[-1].logIndex)
+
         assert \
             len(self.events) == 0 or \
             event in self.events or \
@@ -35,7 +43,7 @@ class RecentEventLog:
             ) or \
             event.removed
 
-        if event.removed and event in self.events:
+        if event.removed:
             self.events = [
                 e for e in self.events
                 if e.blockHash != event.blockHash or e.logIndex != event.logIndex
@@ -54,13 +62,15 @@ class RecentEventLog:
             # This could happen if all events are removed. To avoid it, pass an old enough
             # from_block to the "start" method.
             if event.blockNumber < self.start_block_number:
+                print(event.blockNumber)
+                print(self.start_block_number)
                 logger.critical(
                     f'{self} found in an possibly inconsistent state. Exiting ...'
                 )
                 assert False
 
     @traced(logger, 'Starting RecentEventLog')
-    def start(
+    async def start(
         self,
         addresses: List[str],
         events: List[ContractEvent],
@@ -71,6 +81,7 @@ class RecentEventLog:
         NOTE: start_block must be old enough so that if there is a reorg it can't become
         orphan. There are some efforts to detect this case, but they are not complete.
         """
+        print(f'Start block number is {start_block_number}')
         self.start_block_number = start_block_number
         self.event_stream.subscribe(
             self.process_new_event,
@@ -78,6 +89,7 @@ class RecentEventLog:
             events,
             start_block_number
         )
+        await self.event_stream.poll_for_subscriber(self.process_new_event)
 
     def stop(self) -> None:
         self.event_stream.unsubscribe(self.process_new_event)

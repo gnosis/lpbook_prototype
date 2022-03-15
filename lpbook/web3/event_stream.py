@@ -2,7 +2,7 @@ from abc import abstractmethod
 from dataclasses import dataclass
 import logging
 
-from typing import Dict, List, Callable
+from typing import Any, Dict, List, Callable
 from async_timeout import asyncio
 
 from web3._utils.events import get_event_data
@@ -112,34 +112,44 @@ class ServerFilteredEventPollingStream(EventStream):
             self.uninstall_filter(filter)
         self.subscriptions.pop(subscription)
 
+    async def poll_for_subscriber(
+        self,
+        subscriber: EventStream.Subscriber
+    ):
+        subscription = self.subscriptions[subscriber]
+        decoded_events = []
+        for event, filter in subscription.filters.items():
+            if subscription.updated_once:
+                new_entries = await asyncio.to_thread(filter.get_new_entries)
+            else:
+                new_entries = await asyncio.to_thread(filter.get_all_entries)
+            for encoded_event in new_entries:
+                event_abi = event._get_event_abi()
+                decoded_event = get_event_data(
+                    self.web3_client.codec,
+                    event_abi,
+                    encoded_event
+                )
+                decoded_event = AttributeDict(
+                    decoded_event,
+                    removed=encoded_event.removed
+                )
+                decoded_events.append(decoded_event)
+        subscription.updated_once = True
+        print("decoded_events=", decoded_events)
+        decoded_events = sorted(
+            decoded_events,
+            key=lambda e: (not e.removed, e.blockNumber, e.logIndex)
+        )
+        for decoded_event in decoded_events:
+            subscriber(decoded_event)
+
     @traced(logger, 'Polling blockchain for new events')
-    async def poll(self, block_number: int, block_hash: str):
-        for subscriber, subscription in self.subscriptions.items():
-            decoded_events = []
-            for event, filter in subscription.filters.items():
-                if subscription.updated_once:
-                    new_entries = await asyncio.to_thread(filter.get_new_entries)
-                else:
-                    new_entries = await asyncio.to_thread(filter.get_all_entries)
-                for encoded_event in new_entries:
-                    event_abi = event._get_event_abi()
-                    decoded_event = get_event_data(
-                        self.web3_client.codec,
-                        event_abi,
-                        encoded_event
-                    )
-                    decoded_event = AttributeDict(
-                        decoded_event,
-                        removed=encoded_event.removed
-                    )
-                    decoded_events.append(decoded_event)
-            subscription.updated_once = True
-            decoded_events = sorted(
-                decoded_events,
-                key=lambda e: (e.blockNumber, e.logIndex)
-            )
-            for decoded_event in decoded_events:
-                subscriber(decoded_event)
+    async def poll(self, *args, **kwargs):
+        await asyncio.gather(*[
+            self.poll_for_subscriber(subscriber)
+            for subscriber in self.subscriptions.keys()
+        ])
 
     def get_event_signature_hash(self, event):
         return self.web3_client.keccak(text=get_event_signature(event)).hex()

@@ -2,7 +2,7 @@ import logging
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 import aiohttp
 from lpbook import (LPAsyncProxy, LPDriver, LPFromInitialStatePlusChangesProxy,
@@ -50,7 +50,6 @@ class UniV3(LP):
         }
 
 
-
 class UniV3TheGraphProxy(LPAsyncProxy):
     """Loads the state of liquidity from TheGraph."""
     def __init__(self, lp_ids, uniswap_v3_gql_client):
@@ -58,27 +57,33 @@ class UniV3TheGraphProxy(LPAsyncProxy):
         self.lp_ids = lp_ids
         self.client = uniswap_v3_gql_client
 
-    def create_from_thegraph(self, thegraph_data) -> UniV3:
-        return UniV3(
-            address=thegraph_data.id,
-            token0=Token(
-                address=thegraph_data.token0.id,
-                symbol=thegraph_data.token0.symbol,
-                decimals=int(thegraph_data.token0.decimals)
-            ),
-            token1=Token(
-                address=thegraph_data.token1.id,
-                symbol=thegraph_data.token1.symbol,
-                decimals=int(thegraph_data.token1.decimals)
-            ),
-            sqrt_price=int(thegraph_data.sqrt_price),
-            liquidity=int(thegraph_data.liquidity),
-            tick=int(thegraph_data.tick),
-            liquidity_net={
-                int(tick.tick_idx): int(tick.liquidity_net)
-                for tick in thegraph_data.ticks
-            }
-        )
+    def create_from_thegraph(self, thegraph_data) -> Optional[UniV3]:
+        try:
+            univ3 = UniV3(
+                address=thegraph_data.id,
+                token0=Token(
+                    address=thegraph_data.token0.id,
+                    symbol=thegraph_data.token0.symbol,
+                    decimals=int(thegraph_data.token0.decimals)
+                ),
+                token1=Token(
+                    address=thegraph_data.token1.id,
+                    symbol=thegraph_data.token1.symbol,
+                    decimals=int(thegraph_data.token1.decimals)
+                ),
+                sqrt_price=int(thegraph_data.sqrt_price),
+                liquidity=int(thegraph_data.liquidity),
+                tick=int(thegraph_data.tick),
+                liquidity_net={
+                    int(tick.tick_idx): int(tick.liquidity_net)
+                    for tick in thegraph_data.ticks
+                }
+            )
+        except TypeError:
+            # Ignore ill-defined pools.
+            return None
+
+        return univ3 if len(univ3.liquidity_net) > 0 else None
 
     async def latest_block(self) -> Block:
         block = await self.client.get_last_block()
@@ -123,7 +128,9 @@ class UniV3TheGraphProxy(LPAsyncProxy):
                 lp_id,
                 **extra_kwargs
             )
-            state = {lp_id: self.create_from_thegraph(thegraph_lp_data)}
+            lp_state = self.create_from_thegraph(thegraph_lp_data)
+            if lp_state is not None:
+                state = {lp_id: lp_state}
         else:
             lp_filter = {'id_in': self.lp_ids}
             thegraph_data = await self.client.get_pools_state_and_ticks(
@@ -131,10 +138,11 @@ class UniV3TheGraphProxy(LPAsyncProxy):
                 {},
                 **extra_kwargs
             )
-            state = {
-                thegraph_lp_data.id: self.create_from_thegraph(thegraph_lp_data)
-                for thegraph_lp_data in thegraph_data
-            }
+            state = {}
+            for thegraph_lp_data in thegraph_data:
+                lp_state = self.create_from_thegraph(thegraph_lp_data)
+                if lp_state is not None:
+                    state[thegraph_lp_data.id] = lp_state
 
         # logger.debug(state)
         return state

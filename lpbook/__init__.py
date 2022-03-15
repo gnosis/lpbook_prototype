@@ -176,7 +176,7 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         start_block_hash = self.web3_client.eth.get_block(start_block_number).hash.hex()
         self.checkpoint = await self.async_proxy(start_block_number, start_block_hash)
 
-        self.event_log.start(
+        await self.event_log.start(
             self.lp_ids,
             self.events,
             start_block_number

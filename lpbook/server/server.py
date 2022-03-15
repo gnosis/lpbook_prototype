@@ -53,7 +53,10 @@ async def lps_trading_tokens(token_ids: List[str]):
     try:
         return [
             lp.marshall()
-            for lp in lp_cache.get_lps_trading_tokens(set(token_ids))
+            for lp in lp_cache.get_lps_trading_tokens({
+                token_id.lower()
+                for token_id in token_ids
+            })
         ]
     except Exception as e:
         logger.error(f"Unhandled exception: {str(e)}.")
