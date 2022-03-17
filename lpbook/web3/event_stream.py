@@ -1,18 +1,19 @@
+import logging
 from abc import abstractmethod
 from dataclasses import dataclass
-import logging
+from typing import Any, Callable, Dict, List
 
-from typing import Any, Dict, List, Callable
 from async_timeout import asyncio
+from eth_utils import event_abi_to_log_topic
+from lpbook.util import traced
+from lpbook.web3 import BlockDescriptor
+from lpbook.web3.block_stream import BlockScanning
 
 from web3._utils.events import get_event_data
 from web3._utils.filters import Filter
-from web3.datastructures import AttributeDict
 from web3.contract import ContractEvent
-from lpbook.util import traced
-
-from lpbook.web3 import BlockDescriptor
-from lpbook.web3.block_stream import BlockScanning
+from web3.datastructures import AttributeDict
+from web3.exceptions import MismatchedABI
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +54,6 @@ class EventStream:
         """Changes what subscriber subscribes to."""
 
 
-def get_event_signature(event):
-    event = event._get_event_abi()
-    return f"{event['name']}({','.join(input['type'] for input in event['inputs'])})"
-
-
 class ServerFilteredEventPollingStream(EventStream):
     """A stream of events that is filtered on the server (the web3 node).
 
@@ -73,7 +69,7 @@ class ServerFilteredEventPollingStream(EventStream):
     class Subscription:
         addresses: List[str]
         events: List[ContractEvent]
-        filters: Dict[ContractEvent, Filter]
+        filter: Filter
         updated_once: bool = False
 
     def __init__(self, web3_client):
@@ -88,11 +84,8 @@ class ServerFilteredEventPollingStream(EventStream):
         from_block: BlockDescriptor
     ):
         assert len(events) > 0
-        filters = {}
-        for event in events:
-            filter = self.install_filter(addresses, event, from_block)
-            filters[event] = filter
-        subscription = self.Subscription(addresses, events, filters, False)
+        filter = self.install_filter(addresses, events, from_block)
+        subscription = self.Subscription(addresses, events, filter, False)
         self.subscriptions[subscriber] = subscription
 
     def change_subscription(
@@ -108,8 +101,7 @@ class ServerFilteredEventPollingStream(EventStream):
 
     def unsubscribe(self, subscriber: EventStream.Subscriber):
         subscription = self.subscriptions[subscriber]
-        for filter in subscription.values():
-            self.uninstall_filter(filter)
+        self.uninstall_filter(subscription.filter)
         self.subscriptions.pop(subscription)
 
     async def poll_for_subscriber(
@@ -117,30 +109,45 @@ class ServerFilteredEventPollingStream(EventStream):
         subscriber: EventStream.Subscriber
     ):
         subscription = self.subscriptions[subscriber]
+
+        filter = subscription.filter
+
+        if subscription.updated_once:
+            new_entries = await asyncio.to_thread(filter.get_new_entries)
+        else:
+            new_entries = await asyncio.to_thread(filter.get_all_entries)
+        
         decoded_events = []
-        for event, filter in subscription.filters.items():
-            if subscription.updated_once:
-                new_entries = await asyncio.to_thread(filter.get_new_entries)
-            else:
-                new_entries = await asyncio.to_thread(filter.get_all_entries)
-            for encoded_event in new_entries:
+        for encoded_event in new_entries:
+            decoded_event = None
+            for event in subscription.events:
                 event_abi = event._get_event_abi()
-                decoded_event = get_event_data(
-                    self.web3_client.codec,
-                    event_abi,
-                    encoded_event
-                )
-                decoded_event = AttributeDict(
-                    decoded_event,
-                    removed=encoded_event.removed
-                )
-                decoded_events.append(decoded_event)
+                try:
+                    decoded_event = get_event_data(
+                        self.web3_client.codec,
+                        event_abi,
+                        encoded_event
+                    )
+                except MismatchedABI:
+                    pass
+            decoded_event = AttributeDict(
+                decoded_event,
+                removed=encoded_event.removed
+            )
+            assert decoded_event is not None
+            decoded_events.append(decoded_event)
+
         subscription.updated_once = True
-        print("decoded_events=", decoded_events)
-        decoded_events = sorted(
-            decoded_events,
-            key=lambda e: (not e.removed, e.blockNumber, e.logIndex)
-        )
+
+        # Not sure yet if the node will always send us the events in the
+        # "right" order in case of a reorg. Leaving this here in case
+        # we get assertion failures on RecentEventLog.
+
+        # decoded_events = sorted(
+        #    decoded_events,
+        #    key=lambda e: (not e.removed, e.blockNumber, e.logIndex)
+        # )
+
         for decoded_event in decoded_events:
             subscriber(decoded_event)
 
@@ -151,11 +158,13 @@ class ServerFilteredEventPollingStream(EventStream):
             for subscriber in self.subscriptions.keys()
         ])
 
-    def get_event_signature_hash(self, event):
-        return self.web3_client.keccak(text=get_event_signature(event)).hex()
+    def get_event_as_topic(self, event):
+        return '0x' + event_abi_to_log_topic(event._get_event_abi()).hex()
 
-    def install_filter(self, addresses, event, from_block: BlockDescriptor):
-        event_signature_hash = self.get_event_signature_hash(event)
+    def install_filter(self, addresses, events, from_block: BlockDescriptor):
+        event_signature_hashes = [
+            self.get_event_as_topic(event) for event in events
+        ]
 
         filter_parameters = {}
         if len(addresses) > 0:
@@ -163,7 +172,7 @@ class ServerFilteredEventPollingStream(EventStream):
                 self.web3_client.toChecksumAddress(address.lower())
                 for address in addresses
             ]
-        filter_parameters['topics'] = [event_signature_hash]
+        filter_parameters['topics'] = [event_signature_hashes]
         if from_block is not None:
             filter_parameters['fromBlock'] = from_block
         return self.web3_client.eth.filter(filter_parameters)

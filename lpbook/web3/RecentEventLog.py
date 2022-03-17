@@ -25,14 +25,6 @@ class RecentEventLog:
     def process_new_event(self, event):
         logger.debug(f'Processing event {event} ...')
 
-        print(event.removed)
-        print(len(self.events))
-        print(event.blockNumber)
-        print(event.logIndex)
-        if len(self.events) > 0:
-            print(self.events[-1].blockNumber)
-            print(self.events[-1].logIndex)
-
         assert \
             len(self.events) == 0 or \
             event in self.events or \
@@ -62,8 +54,6 @@ class RecentEventLog:
             # This could happen if all events are removed. To avoid it, pass an old enough
             # from_block to the "start" method.
             if event.blockNumber < self.start_block_number:
-                print(event.blockNumber)
-                print(self.start_block_number)
                 logger.critical(
                     f'{self} found in an possibly inconsistent state. Exiting ...'
                 )
@@ -81,7 +71,6 @@ class RecentEventLog:
         NOTE: start_block must be old enough so that if there is a reorg it can't become
         orphan. There are some efforts to detect this case, but they are not complete.
         """
-        print(f'Start block number is {start_block_number}')
         self.start_block_number = start_block_number
         self.event_stream.subscribe(
             self.process_new_event,
