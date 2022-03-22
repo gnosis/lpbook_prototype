@@ -226,9 +226,23 @@ class LPDriver(ABC):
         Web3 = 2
         TheGraphAndWeb3 = 3
 
-    @abstractmethod
-    def type(self) -> str:
-        """Returns unique identifier for type of lp."""
+    def __init__(self, lp_cls):
+        self.lp_cls = lp_cls
+
+    @property
+    def protocol_name(self) -> str:
+        """Returns unique identifier for lp protocol."""
+        return self.lp_cls.protocol_name
+
+    @property
+    def protocol_version(self) -> str:
+        """Returns unique identifier for lp protocol version."""
+        return self.lp_cls.protocol_version
+
+    @property
+    def protocol(self) -> str:
+        """Returns unique identifier for lp protocol and version."""
+        return f'{self.protocol_name}_{self.protocol_version}'
 
     @abstractmethod
     def create_lp_sync_proxy(self, lp_ids: List[str]) -> LPSyncProxy:

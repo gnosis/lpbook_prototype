@@ -40,9 +40,15 @@ class Curve(LP):
     def uid(self) -> str:
         return self.address
 
+    @classmethod
     @property
-    def type(self) -> str:
+    def protocol_name(self) -> str:
         return 'Curve'
+
+    @classmethod
+    @property
+    def protocol_version(self) -> str:
+        return ''
 
     @property
     def state(self) -> Dict:
@@ -231,12 +237,10 @@ class CurveDriver(LPDriver):
         session: aiohttp.ClientSession,
         web3_client=None
     ):
+        super().__init__(Curve)
         self.block_stream = block_stream
         self.web3_client = web3_client
         self.graphql_client = CurveGraphQLClient(session)
-
-    def type(self) -> str:
-        return "Curve"
 
     def create_lp_sync_proxy(
         self,

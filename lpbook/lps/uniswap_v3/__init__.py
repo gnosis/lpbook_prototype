@@ -32,9 +32,15 @@ class UniV3(LP):
     def uid(self) -> str:
         return self.address
 
+    @classmethod
     @property
-    def type(self) -> str:
-        return 'UniswapV3'
+    def protocol_name(self) -> str:
+        return 'Uniswap'
+
+    @classmethod
+    @property
+    def protocol_version(self) -> str:
+        return '3'
 
     @property
     def tokens(self) -> List[Token]:
@@ -230,13 +236,11 @@ class UniV3Driver(LPDriver):
         session: aiohttp.ClientSession,
         web3_client
     ):
+        super().__init__(UniV3)
         self.event_stream = event_stream
         self.block_stream = block_stream
         self.web3_client = web3_client
         self.graphql_client = UniV3GraphQLClient(session)
-
-    def type(self) -> str:
-        return 'UniswapV3'
 
     def create_lp_sync_proxy(
         self,

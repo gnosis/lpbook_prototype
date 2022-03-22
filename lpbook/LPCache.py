@@ -14,13 +14,15 @@ class LPCache:
     POOL_MAX_CACHED_AGE = datetime.timedelta(days=1)
     POOL_MIN_CACHED_AGE = datetime.timedelta(seconds=1)
 
-    def __init__(self, lp_drivers):
+    def __init__(self, lp_drivers, gas_stats_collector):
         self.lp_drivers = lp_drivers
+        self.gas_stats_collector = gas_stats_collector
         self.cached_tokens = set()
         self.token_last_request_datetime = {}
         self.last_refresh_datetime = None
         self.lp_sync_proxies = {}
         self.lp_sync_pool_ids = {}
+        self.lp_gas_stats = {}
 
     def get_lps_trading_tokens(self, token_ids: set, block_number=None) -> List[LP]:
         """Return all LPs that trade at least two tokens in token_ids.
@@ -43,6 +45,10 @@ class LPCache:
 
         if len(all_lps) == 0:
             logger.warning(f'Cache miss for token_ids {token_ids}.')
+
+        # Add gas statistics
+        for lp in all_lps:
+            lp.gas_stats = self.lp_gas_stats[lp.uid]
 
         return all_lps
 
@@ -78,6 +84,7 @@ class LPCache:
 
         new_lp_sync_proxies = {}
         new_lp_sync_pool_ids = {}
+        new_lp_gas_stats = {}
 
         if len(tokens) > 0:
             for d in self.lp_drivers:
@@ -88,17 +95,22 @@ class LPCache:
 
                 # optimization: no need to reset proxies that return
                 # the same set of pools as last time.
-                if set(lp_ids) == self.lp_sync_pool_ids.get(d.type(), set()):
-                    new_lp_sync_proxies[d.type()] = self.lp_sync_proxies[d.type()]
-                    new_lp_sync_pool_ids[d.type()] = set(lp_ids)
+                if set(lp_ids) == self.lp_sync_pool_ids.get(d.protocol, set()):
+                    new_lp_sync_proxies[d.protocol] = self.lp_sync_proxies[d.protocol]
+                    new_lp_sync_pool_ids[d.protocol] = set(lp_ids)
+                    new_lp_gas_stats.update(self.lp_gas_stats)
                     continue
 
                 lp_sync_proxy = d.create_lp_sync_proxy(
                     lp_ids,
                     LPDriver.LPSyncProxyDataSource.Default
                 )
-                new_lp_sync_proxies[d.type()] = lp_sync_proxy
-                new_lp_sync_pool_ids[d.type()] = lp_ids
+                new_lp_sync_proxies[d.protocol] = lp_sync_proxy
+                new_lp_sync_pool_ids[d.protocol] = lp_ids
+                new_lp_gas_stats.update({
+                    lp_id: self.gas_stats_collector(d.protocol, lp_id)
+                    for lp_id in lp_ids
+                })
 
             # Start new proxies.
             if len(new_lp_sync_proxies) > 0:
@@ -116,5 +128,6 @@ class LPCache:
         # Replace old with new proxies.
         self.lp_sync_proxies = new_lp_sync_proxies
         self.lp_sync_pool_ids = new_lp_sync_pool_ids
+        self.lp_gas_stats = new_lp_gas_stats
         self.cached_tokens = tokens
         self.last_refresh_datetime = now

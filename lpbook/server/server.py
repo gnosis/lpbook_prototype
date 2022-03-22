@@ -8,8 +8,9 @@ import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request
 from lpbook.LPCache import LPCache
+from lpbook.cost.gas_stats_collector import GasStatsCollector
+from lpbook.lps.curve import CurveDriver
 from lpbook.lps.uniswap_v3 import UniV3Driver
-from lpbook.util import stringify_numbers, to_dict, traced_context
 from lpbook.web3.block_stream import BlockStream
 from lpbook.web3.event_stream import ServerFilteredEventStream
 from pydantic import BaseSettings
@@ -19,6 +20,7 @@ logger = logging.getLogger(__name__)
 
 aiohttp_session = None
 lp_cache = None
+gas_statistics = None
 
 # ++++ Interface definition ++++
 
@@ -77,13 +79,18 @@ async def on_startup():
     event_stream = ServerFilteredEventStream(block_stream, w3)
     aiohttp_session = aiohttp.ClientSession()
 
-    # Uniswap V3 driver
+    gas_stats_collector = GasStatsCollector()
+    await gas_stats_collector.initialize()
+
+    # LP drivers
     univ3_driver = UniV3Driver(event_stream, block_stream, aiohttp_session, w3)
+    curve_driver = CurveDriver(block_stream, aiohttp_session, w3)
 
     # Create LP Cache (main service)
-    lp_cache = LPCache([univ3_driver])
+    lp_cache = LPCache([univ3_driver, curve_driver], gas_stats_collector)
 
     asyncio.ensure_future(block_stream.run())
+    asyncio.ensure_future(gas_stats_collector.run())
     asyncio.ensure_future(lp_cache.run())
 
 

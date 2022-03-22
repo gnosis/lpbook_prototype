@@ -2,6 +2,7 @@ from abc import abstractproperty
 import asyncio
 from contextlib import contextmanager
 from dataclasses import dataclass
+from decimal import Decimal
 from typing import List, Dict
 
 import functools
@@ -95,7 +96,7 @@ def stringify_numbers(obj):
         return data
     elif isinstance(obj, str):
         return obj
-    elif isinstance(obj, float) or isinstance(obj, int):
+    elif isinstance(obj, float) or isinstance(obj, int) or isinstance(obj, Decimal):
         return str(obj)
     elif isinstance(obj, list):
         return [stringify_numbers(element) for element in obj]
@@ -110,8 +111,17 @@ class LP:
         """Returns a unique identifier for the LP (like its address)."""
 
     @abstractproperty
-    def type(self) -> str:
-        """Returns the type of lp (UniswapV2, Curve, etc.)."""
+    def protocol_name(self) -> str:
+        """Returns the name of lp protocol (Uniswap, Curve, etc.)."""
+
+    @abstractproperty
+    def protocol_version(self) -> str:
+        """Returns the version of lp protocol."""
+
+    @property
+    def protocol(self) -> str:
+        """Returns the name and version of the lp protocol."""
+        return f'{self.protocol_name}_{self.protocol_version}'
 
     @abstractproperty
     def tokens(self) -> List[Token]:
@@ -125,8 +135,10 @@ class LP:
         """Encodes itself to a dict with a common API."""
         api = {
             'address': self.uid,
-            'type': self.type,
+            'protocol': self.protocol,
             'tokens': self.tokens,
             'state': self.state
         }
+        if hasattr(self, 'gas_stats'):
+            api['gas_stats'] = self.gas_stats
         return stringify_numbers(to_dict(api))
