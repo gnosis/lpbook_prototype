@@ -116,7 +116,7 @@ class ServerFilteredEventPollingStream(EventStream):
             new_entries = await asyncio.to_thread(filter.get_new_entries)
         else:
             new_entries = await asyncio.to_thread(filter.get_all_entries)
-        
+
         decoded_events = []
         for encoded_event in new_entries:
             decoded_event = None
