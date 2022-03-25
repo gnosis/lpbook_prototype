@@ -56,5 +56,5 @@ uvloop==0.16.0
 varint==1.0.2
 watchgod==0.7
 web3==5.28.0
-websockets==10.2
+websockets<10
 yarl==1.7.2
