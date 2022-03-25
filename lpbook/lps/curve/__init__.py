@@ -17,6 +17,7 @@ from lpbook.util import LP, Token
 from lpbook.web3 import Block, create_token_from_web3
 from lpbook.web3.block_stream import BlockStream
 from web3.constants import ADDRESS_ZERO
+from web3.exceptions import BlockNotFound
 
 setcontext(Context(prec=MAX_PREC, Emax=MAX_EMAX, Emin=MIN_EMIN))
 
@@ -138,12 +139,15 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
         state = {}
 
         async def add_to_state(lp_id):
-            state[lp_id] = await asyncio.to_thread(
-                self.create_from_blockchain,
-                lp_id,
-                block_number,
-                block_hash
-            )
+            try:
+                state[lp_id] = await asyncio.to_thread(
+                    self.create_from_blockchain,
+                    lp_id,
+                    block_number,
+                    block_hash
+                )
+            except BlockNotFound as e:
+                raise RuntimeError(str(e))
 
         await asyncio.gather(
             *[add_to_state(lp_id) for lp_id in self.lp_ids]
