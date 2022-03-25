@@ -1,6 +1,7 @@
 import logging
 from copy import deepcopy
 from dataclasses import dataclass
+from decimal import Decimal as D
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -27,6 +28,7 @@ class UniV3(LP):
     liquidity: int
     tick: int
     liquidity_net: Dict[int, int]
+    fee: int
 
     @property
     def uid(self) -> str:
@@ -52,7 +54,8 @@ class UniV3(LP):
             'sqrt_price': self.sqrt_price,
             'liquidiy': self.liquidity,
             'tick': self.tick,
-            'liquidity_net': self.liquidity_net
+            'liquidity_net': self.liquidity_net,
+            'fee': self.fee
         }
 
 
@@ -83,7 +86,8 @@ class UniV3TheGraphProxy(LPAsyncProxy):
                 liquidity_net={
                     int(tick.tick_idx): int(tick.liquidity_net)
                     for tick in thegraph_data.ticks
-                }
+                },
+                fee=D(thegraph_data.fee_tier)/D(10000)
             )
         except TypeError:
             # Ignore ill-defined pools.
