@@ -147,7 +147,7 @@ class GasStatsCollector:
                 self.data = [
                     d
                     for d in data
-                    if datetime.datetime.strptime(data['block_time'], '%Y-%m-%d %H:%M') >=
+                    if datetime.datetime.strptime(d['block_time'], '%Y-%m-%d %H:%M') >=
                     min_time
                 ]
                 self.dump_trade_data_to_disk()

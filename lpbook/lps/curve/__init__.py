@@ -148,6 +148,8 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
                 )
             except BlockNotFound as e:
                 raise RuntimeError(str(e))
+            except ValueError as e:
+                raise RuntimeError(str(e))
 
         await asyncio.gather(
             *[add_to_state(lp_id) for lp_id in self.lp_ids]
