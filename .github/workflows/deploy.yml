@@ -9,6 +9,7 @@ on:
 
   # Allows you to run this workflow manually from the Actions tab
   workflow_dispatch:
+    branches: [main]
 
 jobs:
   deploy:
@@ -16,7 +17,7 @@ jobs:
 
     env:
       AUTODEPLOY_TAG: ${{ secrets.AUTODEPLOY_TAG }}
-      AUTODEPLOY_URL: https://dfusion.auto.gnosisdev.com/services/dfusion-v2-lpbook-prototype/rollout
+      AUTODEPLOY_URL: https://dfusion.auto.gnosisdev.com/services/dfusion-v2-lpbook-prototype-mainnet/rollout
       AUTODEPLOY_TOKEN: ${{ secrets.AUTODEPLOY_TOKEN }}
       AWS_REGION: ${{ secrets.AWS_REGION }}
       REGISTRY_URI: ${{ secrets.REGISTRY_URI }}
