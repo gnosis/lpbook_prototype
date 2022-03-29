@@ -6,9 +6,11 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
-RUN python3 -m venv /app/venv
+# RUN python3 -m venv /app/venv
 
 COPY ./ ./
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip3 install --no-cache-dir -r requirements.txt
 
 WORKDIR /app
+
+CMD python3 -m lpbook.server.server
