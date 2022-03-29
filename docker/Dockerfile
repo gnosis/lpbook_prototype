@@ -1,5 +1,5 @@
 
-FROM ubuntu:focal
+FROM ubuntu:latest
 
 RUN apt-get update \
   && apt-get install -y --no-install-recommends g++ make cmake python3-venv python3-dev python3-pip python-dev \
