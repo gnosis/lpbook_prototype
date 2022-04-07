@@ -1,14 +1,16 @@
 import asyncio
 import logging
 import os
+import sys
+import traceback
 from typing import List
 
 import aiohttp
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request
-from lpbook.LPCache import LPCache
 from lpbook.cost.gas_stats_collector import GasStatsCollector
+from lpbook.LPCache import LPCache
 from lpbook.lps.curve import CurveDriver
 from lpbook.lps.uniswap_v3 import UniV3Driver
 from lpbook.web3.block_stream import BlockStream
@@ -61,7 +63,8 @@ async def lps_trading_tokens(token_ids: List[str]):
             })
         ]
     except Exception as e:
-        logger.error(f"Unhandled exception: {str(e)}.")
+        logger.error(
+            f"Unhandled exception: {str(e)}. Traceback:\n{traceback.format_exc()}\n")
         return []
 
 

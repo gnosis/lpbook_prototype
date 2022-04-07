@@ -194,6 +194,9 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
                 tick_lower = d.args.tickLower
                 tick_upper = d.args.tickUpper
 
+                assert d.args.amount is not None
+                assert lp_cur_state.liquidity is not None
+
                 # liquidity tracks the liquidity on recent tick,
                 # only need to update it if the new position includes the recent tick.
                 if lp_cur_state.tick <= tick_lower and lp_cur_state.tick > tick_upper:
@@ -211,6 +214,9 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
             elif d.event == 'Burn':
                 tick_lower = d.args.tickLower
                 tick_upper = d.args.tickUpper
+
+                assert d.args.amount is not None
+                assert lp_cur_state.liquidity is not None
 
                 # liquidity tracks the liquidity on recent tick,
                 # only need to update it if the new position includes the recent tick.

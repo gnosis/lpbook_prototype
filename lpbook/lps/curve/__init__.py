@@ -56,6 +56,7 @@ class Curve(LP):
         return {
             'amplification_parameter': self.amplification_parameter,
             'fee': self.fee,
+            'balances': self.balances
         }
 
 class CurveWeb3AsyncProxy(LPAsyncProxy):
