@@ -14,7 +14,7 @@ COPY ./ ./
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Load initial trade db from git LFS (https://git-lfs.github.com/).
-RUN git lfs pull -I lpbook/cost/traded_data.pickled
+# RUN git lfs pull -I lpbook/cost/traded_data.pickled
 
 # Start server.
 CMD python3 -m lpbook.server.server
