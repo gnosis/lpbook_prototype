@@ -24,6 +24,8 @@ def get_datafile_path():
     trade_data_path = os.getenv('TRADE_DATA_PATH')
     if trade_data_path is None:
         trade_data_path = Path(__file__).parent
+    else:
+        trade_data_path = Path(trade_data_path)
     return trade_data_path / 'traded_data.pickled'
 
 class GasStatsCollector:
