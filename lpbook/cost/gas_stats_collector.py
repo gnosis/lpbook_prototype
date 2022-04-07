@@ -20,8 +20,14 @@ logging.config.fileConfig(fname='logging.conf', disable_existing_loggers=True)
 logger = logging.getLogger(__name__)
 
 
+def get_datafile_path():
+    trade_data_path = os.getenv('TRADE_DATA_PATH')
+    if trade_data_path is None:
+        trade_data_path = Path(__file__).parent
+    return trade_data_path / 'traded_data.pickled'
+
 class GasStatsCollector:
-    DATAFILE = Path(__file__).parent / 'traded_data.pickled'
+    DATAFILE = get_datafile_path()
 
     def __init__(
         self,
