@@ -9,7 +9,7 @@ import aiohttp
 from lpbook import (LPAsyncProxy, LPDriver, LPFromInitialStatePlusChangesProxy,
                     LPSyncProxy, LPSyncProxyFromAsyncProxy)
 from lpbook.util import LP, Token
-from lpbook.web3 import Block
+from lpbook.web3 import BlockId
 from lpbook.web3.block_stream import BlockStream
 from lpbook.web3.event_stream import EventStream
 
@@ -95,39 +95,29 @@ class UniV3TheGraphProxy(LPAsyncProxy):
 
         return univ3 if len(univ3.liquidity_net) > 0 else None
 
-    async def latest_block(self) -> Block:
+    async def latest_block(self) -> BlockId:
         block = await self.client.get_last_block()
-        return Block(number=block.number, hash=str(block.hash))
+        return BlockId(number=block.number, hash=str(block.hash))
 
     async def __call__(
         self,
-        block_number: int = None,
-        block_hash: str = None
+        block: BlockId
     ) -> Dict[str, LP]:
-        shortened_block_hash = block_hash[:8] if block_hash is not None else None
         logger.debug(
-            'Retrieving uniswap V3 state from TheGraph at block '
-            f'{block_number}/{shortened_block_hash} ...'
+            f'Retrieving uniswap V3 state from TheGraph at block {block} ...'
         )
 
-        block = {}
-        if block_hash is not None:
-            block.update(hash=block_hash)
-        elif block_number is not None:
-            block.update(number=block_number)
-        extra_kwargs = {}
-        if len(block) > 0:
-            extra_kwargs = {'block': block}
+        extra_kwargs = block.to_thegraph_filter()
 
         # this is to workaround a current thegraph bug (already reported and confirmed),
         # where thegraph replies with arbitrary data when the passed block number/hash is
         # not yet indexed.
-        if block_number is not None:
+        if block.number is not None:
             latest_block_number = (await self.latest_block()).number
-            if block_number > latest_block_number:
+            if block.number > latest_block_number:
                 logger.debug(
                     f'{self} is lagging behind '
-                    f'{block_number - latest_block_number} blocks.'
+                    f'{block.number - latest_block_number} blocks.'
                 )
                 raise RuntimeError(f'Attempt to retrieve a block too recent for {self}')
 

@@ -32,8 +32,8 @@ def traced(logger, description=None):
                 try:
                     return func(*args, **kwargs)
                 except Exception as err:
-                    logger.debug(f'Caught exception in {func.__name__!r}: {err}')
-                    raise err
+                    logger.error(f'Caught exception in {func.__name__!r}: {err}')
+                    raise
 
         @functools.wraps(func)
         async def async_wrapper(*args, **kwargs):
@@ -41,8 +41,8 @@ def traced(logger, description=None):
                 try:
                     return await func(*args, **kwargs)
                 except Exception as err:
-                    logger.debug(f'Caught exception in {func.__name__!r}: {err}')
-                    raise err
+                    logger.error(f'Caught exception in {func.__name__!r}: {err}')
+                    raise
 
         if asyncio.iscoroutinefunction(func):
             return async_wrapper
@@ -88,21 +88,25 @@ def to_dict(obj, classkey=None):
 
 
 # Recursively wrap all numbers as string.
-def stringify_numbers(obj):
+def stringify_numbers(obj, except_keys):
     if isinstance(obj, dict):
         data = {}
         for (k, v) in obj.items():
-            data[stringify_numbers(k)] = stringify_numbers(v)
+            if k not in except_keys:
+                data[stringify_numbers(k, except_keys)] = stringify_numbers(v, except_keys)
+            else:
+                data[k] = v
         return data
     elif isinstance(obj, str):
         return obj
     elif isinstance(obj, float) or isinstance(obj, int) or isinstance(obj, Decimal):
         return str(obj)
     elif isinstance(obj, list):
-        return [stringify_numbers(element) for element in obj]
+        return [stringify_numbers(element, except_keys) for element in obj]
+    elif obj is None:
+        return None
     else:
-        print(f"can't stringify {obj}")
-        assert(False)   # TODO: fill in more cases
+        raise NotImplementedError(f"Can't stringify {obj}.")
 
 
 class LP:
@@ -141,4 +145,7 @@ class LP:
         }
         if hasattr(self, 'gas_stats'):
             api['gas_stats'] = self.gas_stats
-        return stringify_numbers(to_dict(api))
+        try:
+            return stringify_numbers(to_dict(api), {'decimals'})
+        except NotImplementedError:
+            raise RuntimeError(f"Can't marshall LP {api}")

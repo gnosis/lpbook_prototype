@@ -2,11 +2,13 @@ from abc import abstractproperty
 import asyncio
 import json
 import logging
+from typing import Optional
 from web3 import Web3
 
 from websockets import connect
 
 from lpbook.util import traced
+from lpbook.web3 import BlockId
 
 logger = logging.getLogger(__name__)
 
@@ -15,12 +17,11 @@ class BlockScanning:
     """A set of methods that need to exist on any streams/proxies scanning blocks."""
 
     @abstractproperty
-    def last_block_number(self) -> int:
-        """Most recent block number scanned."""
+    def last_block(self) -> Optional[BlockId]:
+        """Most recent block scanned, or none if no blocks were scanned.
 
-    @abstractproperty
-    def last_block_hash(self) -> str:
-        """Most recent block hash scanned."""
+        The block must be fully qualified.
+        """
 
 
 class BlockStream(BlockScanning):
@@ -30,27 +31,23 @@ class BlockStream(BlockScanning):
         """web3_ws should be a node websocket endpoint"""
         self.web3_ws = web3_ws
         self.subscribers = []
-        self._last_block_number = None
-        self._last_block_hash = None
+        self._last_block = None
         self.running = False
 
     @property
-    def last_block_number(self) -> int:
-        return self._last_block_number
-
-    @property
-    def last_block_hash(self) -> str:
-        return self._last_block_hash
+    def last_block(self) -> Optional[BlockId]:
+        return self._last_block
 
     def subscribe(self, subscriber):
         self.subscribers.append(subscriber)
 
-    async def trigger(self, block_number, block_hash):
-        self._last_block_number = block_number
-        self._last_block_hash = block_hash
+    async def trigger(self, block: BlockId):
+        assert block.is_fully_qualified()
+        self._last_block_number = block.number
+        self._last_block_hash = block.hash
         await asyncio.gather(
             *[
-                subscriber(block_number, block_hash)
+                subscriber(block)
                 for subscriber in self.subscribers
             ]
         )
@@ -74,7 +71,7 @@ class BlockStream(BlockScanning):
                     f'Telling subscribers about past block {start_block_number}'
                     f'/{start_block.hash.hex()[:8]}'
                 )
-                await self.trigger(start_block.number, start_block.hash.hex())
+                await self.trigger(BlockId.from_web3(start_block))
                 start_block_number += 1
 
         logger.debug(f'{self} has finished processing past blocks')
@@ -103,7 +100,7 @@ class BlockStream(BlockScanning):
                     f'Detected new block {block_number}/{block_hash[:8]}. '
                     'Telling subscribers about it ...'
                 )
-                await self.trigger(block_number, block_hash)
+                await self.trigger(BlockId(number=block_number, hash=block_hash))
 
     @traced(logger, 'Running BlockStream')
     async def run(self, start_block_number: int = None):

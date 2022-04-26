@@ -9,6 +9,7 @@ from lpbook import LPDriver
 from lpbook.lps.curve import CurveDriver
 from lpbook.lps.uniswap_v3 import UniV3Driver
 from lpbook.util import traced_context
+from lpbook.web3 import BlockId
 from lpbook.web3.block_stream import BlockStream
 from lpbook.web3.event_stream import ServerFilteredEventStream
 from web3 import Web3
@@ -38,20 +39,20 @@ async def assert_equivalent_proxies(
     The testing_proxy is not allowed to raise exceptions.
     """
 
-    async def check_at_block(block_number, block_hash):
-        assert block_number is not None
+    async def check_at_block(block: BlockId):
+        assert block.number is not None
         logger.debug(
-            f'Asserting equivalent state at block {block_number}/{block_hash[:8]} ...'
+            f'Asserting equivalent state at block {block} ...'
         )
         try:
-            lps1 = oracle_proxy(block_hash=block_hash)
+            lps1 = oracle_proxy(block)
         except RuntimeError as err:
             logger.warning(
                 f'Could not query oracle proxy at {cur_block_number}: {err}. '
                 'Possibly skipping block ...'
             )
             return
-        lps2 = testing_proxy(block_hash=block_hash)
+        lps2 = testing_proxy(block)
         lps1 = {lp_id: lps1[lp_id] for lp_id in sorted(lps1.keys())}
         lps2 = {lp_id: lps2[lp_id] for lp_id in sorted(lps2.keys())}
         if lps1 != lps2:
@@ -80,19 +81,19 @@ async def assert_equivalent_proxies(
 
     # wait until all caches are filled
     with traced_context(logger, 'Cache warm up'):
-        while block_stream.last_block_number is None or \
-                block_stream.last_block_number < cur_block.number:
+        while block_stream.last_block is None or \
+                block_stream.last_block.number < cur_block.number:
             await asyncio.sleep(5)
 
     with traced_context(logger, 'Main run loop'):
         while True:
-            cur_block_number = block_stream.last_block_number - block_lag
+            cur_block_number = block_stream.last_block.number - block_lag
             if block_lag == 0:
-                cur_block_hash = block_stream.last_block_hash
+                cur_block_hash = block_stream.last_block.hash
             else:
                 cur_block = web3_client.eth.get_block(cur_block_number)
                 cur_block_hash = cur_block.hash.hex()
-            await check_at_block(cur_block_number, cur_block_hash)
+            await check_at_block(BlockId(number=cur_block_number, hash=cur_block_hash))
             await asyncio.sleep(10)
 
 

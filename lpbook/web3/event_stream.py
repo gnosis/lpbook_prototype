@@ -1,12 +1,12 @@
 import logging
 from abc import abstractmethod
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List
+from typing import Any, Callable, Dict, List, Optional
 
 from async_timeout import asyncio
 from eth_utils import event_abi_to_log_topic
 from lpbook.util import traced
-from lpbook.web3 import BlockDescriptor
+from lpbook.web3 import BlockId
 from lpbook.web3.block_stream import BlockScanning
 
 from web3._utils.events import get_event_data
@@ -28,7 +28,7 @@ class EventStream:
         subscriber: Subscriber,
         addresses: List[str],
         events: List[ContractEvent],
-        from_block: BlockDescriptor
+        from_block_number: Optional[int]
     ):
         """Subscribes the event stream filtered for given addresses and events.
 
@@ -49,9 +49,14 @@ class EventStream:
         subscriber: Subscriber,
         addresses: List[str],
         events: List[ContractEvent],
-        from_block_number: BlockDescriptor
+        from_block_number: Optional[int]
     ):
         """Changes what subscriber subscribes to."""
+
+
+class DroppedSubscriptionError(RuntimeError):
+    """Signals that subscription was dropped by the node."""
+    # Apparently it does not annoy anyone in the blockchain world.
 
 
 class ServerFilteredEventPollingStream(EventStream):
@@ -81,10 +86,10 @@ class ServerFilteredEventPollingStream(EventStream):
         subscriber: EventStream.Subscriber,
         addresses: List[str],
         events: List[ContractEvent],
-        from_block: BlockDescriptor
+        from_block_number: Optional[int]
     ):
         assert len(events) > 0
-        filter = self.install_filter(addresses, events, from_block)
+        filter = self.install_filter(addresses, events, from_block_number)
         subscription = self.Subscription(addresses, events, filter, False)
         self.subscriptions[subscriber] = subscription
 
@@ -93,18 +98,18 @@ class ServerFilteredEventPollingStream(EventStream):
         subscriber: EventStream.Subscriber,
         addresses: List[str],
         events: List[ContractEvent],
-        from_block: BlockDescriptor
+        from_block_number: Optional[int]
     ):
         assert len(events) > 0
         self.unsubscribe(subscriber)
-        self.subscribe(subscriber, addresses, events, from_block)
+        self.subscribe(subscriber, addresses, events, from_block_number)
 
     def unsubscribe(self, subscriber: EventStream.Subscriber):
         subscription = self.subscriptions[subscriber]
         self.uninstall_filter(subscription.filter)
-        self.subscriptions.pop(subscription)
+        self.subscriptions.pop(subscriber)
 
-    async def poll_for_subscriber(
+    async def poll_for_subscriber_helper(
         self,
         subscriber: EventStream.Subscriber
     ):
@@ -151,6 +156,20 @@ class ServerFilteredEventPollingStream(EventStream):
         for decoded_event in decoded_events:
             subscriber(decoded_event)
 
+    async def poll_for_subscriber(
+        self,
+        subscriber: EventStream.Subscriber
+    ):
+        try:
+            return await self.poll_for_subscriber_helper(subscriber)
+
+        # sometimes the node just drops the filter without notice :(
+        except ValueError as err:
+            if self.is_filter_not_found_error(err):
+                raise DroppedSubscriptionError() from err
+            else:
+                raise err
+
     @traced(logger, 'Polling blockchain for new events')
     async def poll(self, *args, **kwargs):
         await asyncio.gather(*[
@@ -161,7 +180,7 @@ class ServerFilteredEventPollingStream(EventStream):
     def get_event_as_topic(self, event):
         return '0x' + event_abi_to_log_topic(event._get_event_abi()).hex()
 
-    def install_filter(self, addresses, events, from_block: BlockDescriptor):
+    def install_filter(self, addresses, events, from_block_number: Optional[int]):
         event_signature_hashes = [
             self.get_event_as_topic(event) for event in events
         ]
@@ -173,12 +192,21 @@ class ServerFilteredEventPollingStream(EventStream):
                 for address in addresses
             ]
         filter_parameters['topics'] = [event_signature_hashes]
-        if from_block is not None:
-            filter_parameters['fromBlock'] = from_block
+        if from_block_number is not None:
+            filter_parameters['fromBlock'] = from_block_number
+
         return self.web3_client.eth.filter(filter_parameters)
 
+    def is_filter_not_found_error(self, error):
+        return error.args[0]["code"] == -32000
+
     def uninstall_filter(self, filter):
-        self.web3_client.eth.uninstall_filter(filter.filter_id)
+        try:
+            self.web3_client.eth.uninstall_filter(filter.filter_id)
+        # sometimes the node just drops the filter without notice :(
+        except ValueError as err:
+            if not self.is_filter_not_found_error(err):
+                raise err
 
     def unsubscribe_all(self):
         for subscription in self.subscriptions.values():
@@ -193,9 +221,6 @@ class ServerFilteredEventStream(ServerFilteredEventPollingStream, BlockScanning)
         self.block_stream.subscribe(self.poll)
 
     @property
-    def last_block_number(self) -> int:
-        return self.block_stream.last_block_number
+    def last_block(self) -> Optional[BlockId]:
+        return self.block_stream.last_block
 
-    @property
-    def last_block_hash(self) -> str:
-        return self.block_stream.last_block_hash

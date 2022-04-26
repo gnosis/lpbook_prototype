@@ -1,10 +1,13 @@
 import asyncio
 import datetime
 import logging
+import traceback
 from typing import List
 from lpbook import LPDriver
+from lpbook.error import CacheMissError
 
 from lpbook.util import LP, traced
+from lpbook.web3 import BlockId
 
 logger = logging.getLogger(__name__)
 
@@ -37,7 +40,11 @@ class LPCache:
         # Always return immediately whatever is cached.
         all_lps = []
         for lp_sync_proxy in self.lp_sync_proxies.values():
-            lps = list(lp_sync_proxy(block_number=block_number).values())
+            try:
+                lps = list(lp_sync_proxy(BlockId(number=block_number)).values())
+            except CacheMissError:
+                logger.debug(f'LPProxy {lp_sync_proxy} still initializing. Skipping ...')
+                continue
             for lp in lps:
                 lp_token_ids = {t.address for t in lp.tokens}
                 if len(lp_token_ids & token_ids) >= 2:
@@ -77,6 +84,51 @@ class LPCache:
 
             await asyncio.sleep(self.POOL_MIN_CACHED_AGE.total_seconds())
 
+    async def refresh_driver(self, driver, tokens):
+        cur_lp_sync_proxy = self.lp_sync_proxies.get(driver.protocol, None)
+        cur_lp_ids = self.lp_sync_pool_ids.get(driver.protocol, set())
+        cur_lp_gas_stats = self.lp_gas_stats
+
+        try:
+            new_lp_ids = set(await driver.get_lp_ids(tokens))
+        except Exception as err:
+            logger.error(
+                f"Error querying lps for {driver.protocol}: {err}. "
+                f"Traceback:\n{traceback.format_exc()}"
+            )
+            # Keep current proxy in case of error
+            return (cur_lp_sync_proxy, cur_lp_ids, cur_lp_gas_stats)
+
+        if len(new_lp_ids) == 0:
+            return ([], set(), None)
+
+        # optimization: no need to reset proxies that return
+        # the same set of pools as last time.
+        if new_lp_ids == cur_lp_ids:
+            return (cur_lp_sync_proxy, cur_lp_ids, cur_lp_gas_stats)
+
+        print(f"Starting proxy because ids different for protocol {driver.protocol}: +{new_lp_ids - cur_lp_ids} / -{cur_lp_ids - new_lp_ids}")
+        new_lp_sync_proxy = driver.create_lp_sync_proxy(
+            new_lp_ids,
+            LPDriver.LPSyncProxyDataSource.Default
+        )
+
+        try:
+            await new_lp_sync_proxy.start()
+        except Exception as err:
+            logger.error(
+                f"Error starting lp sync proxy for {driver.protocol}: {err}. "
+                f"Traceback:\n{traceback.format_exc()}"
+            )
+            return (cur_lp_sync_proxy, cur_lp_ids, cur_lp_gas_stats)
+
+        new_lp_gas_stats = {
+            lp_id: self.gas_stats_collector(driver.protocol, lp_id)
+            for lp_id in new_lp_ids
+        }
+
+        return (new_lp_sync_proxy, new_lp_ids, new_lp_gas_stats)
+
     @traced(logger, 'Refreshing LP cache')
     async def refresh(self, tokens):
         logger.debug(f'Refreshing LP cache for {len(tokens)} tokens ...')
@@ -86,39 +138,16 @@ class LPCache:
         new_lp_sync_pool_ids = {}
         new_lp_gas_stats = {}
 
+        async def update_new(driver):
+            (driver_proxy, driver_lp_ids, driver_lp_gas_stats) = \
+                await self.refresh_driver(driver, tokens)
+            if driver_proxy is not None:
+                new_lp_sync_proxies[driver.protocol] = driver_proxy
+                new_lp_sync_pool_ids[driver.protocol] = driver_lp_ids
+                new_lp_gas_stats.update(driver_lp_gas_stats)
+
         if len(tokens) > 0:
-            for d in self.lp_drivers:
-                lp_ids = await d.get_lp_ids(tokens)
-
-                if len(lp_ids) == 0:
-                    continue
-
-                # optimization: no need to reset proxies that return
-                # the same set of pools as last time.
-                if set(lp_ids) == self.lp_sync_pool_ids.get(d.protocol, set()):
-                    new_lp_sync_proxies[d.protocol] = self.lp_sync_proxies[d.protocol]
-                    new_lp_sync_pool_ids[d.protocol] = set(lp_ids)
-                    new_lp_gas_stats.update(self.lp_gas_stats)
-                    continue
-
-                lp_sync_proxy = d.create_lp_sync_proxy(
-                    lp_ids,
-                    LPDriver.LPSyncProxyDataSource.Default
-                )
-                new_lp_sync_proxies[d.protocol] = lp_sync_proxy
-                new_lp_sync_pool_ids[d.protocol] = lp_ids
-                new_lp_gas_stats.update({
-                    lp_id: self.gas_stats_collector(d.protocol, lp_id)
-                    for lp_id in lp_ids
-                })
-
-            # Start new proxies.
-            if len(new_lp_sync_proxies) > 0:
-                await asyncio.gather(*[
-                    lp_sync_proxy.start()
-                    for lp_sync_proxy in new_lp_sync_proxies.values()
-                    if lp_sync_proxy not in self.lp_sync_proxies.values()
-                ])
+            await asyncio.gather(*[update_new(driver) for driver in self.lp_drivers])
 
         # Stop all current proxies that we won't keep
         for sync_proxy in self.lp_sync_proxies.values():

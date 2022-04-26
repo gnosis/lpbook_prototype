@@ -3,6 +3,7 @@ from typing import Any, List
 
 from lpbook.error import CacheMissError
 from lpbook.util import traced
+from lpbook.web3 import BlockId
 
 from .event_stream import EventStream
 from web3.contract import ContractEvent
@@ -71,6 +72,7 @@ class RecentEventLog:
         NOTE: start_block must be old enough so that if there is a reorg it can't become
         orphan. There are some efforts to detect this case, but they are not complete.
         """
+        assert start_block_number is not None
         self.start_block_number = start_block_number
         self.event_stream.subscribe(
             self.process_new_event,
@@ -89,7 +91,7 @@ class RecentEventLog:
         """Updates filter."""
         logger.debug(f'Updating {self} ...')
 
-        cur_block_hash = self.event_stream.last_block_hash
+        cur_block_hash = self.event_stream.last_block.hash
 
         # NOTE: we can do this since process_event above ensures de-duplication of events.
         # The cur_block_number + 1 alternative does not look robust to race
@@ -101,25 +103,29 @@ class RecentEventLog:
             cur_block_hash
         )
 
-    def __call__(self, block_number=None, block_hash=None) -> List[Any]:
+    def __call__(self, block: BlockId) -> List[Any]:
         """Returns deltas from self.get_start_block() up to (including) given block.
 
         If block is given but not cached, will raise a CacheMissError.
         Note: the block range for which deltas are returned is [start_block, block].
         """
-        if block_hash is not None:
-            block_number = self.web3_client.eth.get_block(block_hash).number
-        if block_number is not None:
-            if block_number < self.start_block_number or \
-               block_number > self.event_stream.last_block_number:
-                raise CacheMissError(f'No events for block {block_number} in cache.')
-            return [e for e in self.events if e.blockNumber <= block_number]
+        # we really need the number if only the hash is provided
+        if block.hash is not None and block.number is None:
+            block = block.with_number(self.web3_client.eth.get_block(block.hash).number)
+        if block.number is not None:
+            assert self.event_stream.last_block is not None
+            if block.number < self.start_block_number or \
+               block.number > self.event_stream.last_block.number:
+                raise CacheMissError(f'No events for block {block} in cache.')
+            return [e for e in self.events if e.blockNumber <= block.number]
         return self.events
 
     @property
     def block_count(self) -> int:
         """Get number of blocks in the log."""
-        return self.event_stream.last_block_number - self.start_block_number + 1
+        if self.event_stream.last_block is None:
+            return 0
+        return self.event_stream.last_block.number - self.start_block_number + 1
 
     def update_start_block(self, new_start_block_number) -> None:
         """Updates start block monotonically.

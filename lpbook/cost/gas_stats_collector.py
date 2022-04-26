@@ -5,6 +5,7 @@ import os.path
 from pathlib import Path
 import pickle
 from math import sqrt
+import dateutil
 
 from dotenv import load_dotenv
 from lpbook.util import traced, traced_context
@@ -28,12 +29,13 @@ def get_datafile_path():
         trade_data_path = Path(trade_data_path)
     return trade_data_path / 'traded_data.pickled'
 
+
 class GasStatsCollector:
     DATAFILE = get_datafile_path()
 
     def __init__(
         self,
-        refresh_interval=datetime.timedelta(days=1),
+        refresh_interval=datetime.timedelta(days=10),
         data_time_interval=datetime.timedelta(days=7)
     ):
         """Queries and assembles gas statistics from dex trades in dune analytics.
@@ -90,18 +92,14 @@ class GasStatsCollector:
 
     def __call__(self, project_and_version, address):
         address = address.replace('0x', '\\x')
-        trade_data_for_address = [r for r in self.data if r['address'] == address]
-        if len(trade_data_for_address) >= 2:
-            return self.compute_stats_helper([
-                r['gas_used'] for r in trade_data_for_address
-            ])
-        trade_data_for_protocol = [
-            r for r in self.data if r['project_and_version'] == project_and_version
-        ]
-        if len(trade_data_for_protocol) >= 2:
-            return self.compute_stats_helper([
-                r['gas_used'] for r in trade_data_for_protocol
-            ])
+        if self.stats_by_address is not None and \
+                address in self.stats_by_address:
+            return self.stats_by_address[address]
+        if self.stats_by_protocol is not None and \
+                project_and_version in self.stats_by_protocol:
+            return self.stats_by_protocol[project_and_version]
+
+        logger.warning(f"No gas stats for {project_and_version} LP @ {address}")
         return None
 
     def compute_stats_helper(self, data):
@@ -118,22 +116,47 @@ class GasStatsCollector:
             }
         }
 
+    def cache_stats(self):
+        trade_data_by_address = {}
+        trade_data_by_protocol = {}
+        for r in self.data:
+            address, protocol, gas_used = r['address'], r['project_and_version'], r['gas_used']
+            if address not in trade_data_by_address.keys():
+                trade_data_by_address[address] = []
+            trade_data_by_address[address].append(gas_used)
+
+            if protocol not in trade_data_by_protocol.keys():
+                trade_data_by_protocol[protocol] = []
+            trade_data_by_protocol[protocol].append(gas_used)
+
+        self.stats_by_address = {}
+        for address, gas_used_sample in trade_data_by_address.items():
+            if len(gas_used_sample) >= 2:
+                self.stats_by_address[address] = \
+                    self.compute_stats_helper(gas_used_sample)
+
+        self.stats_by_protocol = {}
+        for protocol, gas_used_sample in trade_data_by_protocol.items():
+            if len(gas_used_sample) >= 2:
+                self.stats_by_protocol[protocol] = \
+                    self.compute_stats_helper(gas_used_sample)
+
     @traced(logger, 'Initializing GasStatsCollector')
     async def initialize(self):
+        # Try to load from disk, and then from dune if not in disk
         try:
             self.load_trade_data_from_disk()
-            return
         except FileNotFoundError:
-            pass
-        while True:
-            try:
-                end_time = datetime.datetime.now()
-                start_time = end_time - self.data_time_interval
-                self.data = await self.load_trade_data_from_dune(start_time, end_time)
-                self.dump_trade_data_to_disk()
-                return
-            except Exception as err:
-                logger.error(f"Exception loading data from dune: {err}. Retrying ...")
+            while True:
+                try:
+                    end_time = datetime.datetime.now()
+                    start_time = end_time - self.data_time_interval
+                    self.data = await self.load_trade_data_from_dune(start_time, end_time)
+                    self.dump_trade_data_to_disk()
+                    return
+                except RuntimeError as err:
+                    logger.error(f"Exception loading data from dune: {err}. Retrying ...")
+        self.cache_stats()
 
     @traced(logger, 'Running GasStatsCollector')
     async def run(self):
@@ -155,11 +178,11 @@ class GasStatsCollector:
                 self.data = [
                     d
                     for d in data
-                    if datetime.datetime.strptime(d['block_time'], '%Y-%m-%d %H:%M') >=
+                    if dateutil.parser.parse(d['block_time']) >=
                     min_time
                 ]
                 self.dump_trade_data_to_disk()
-            except Exception as err:
+            except RuntimeError as err:
                 logger.error(f"Exception loading data from dune: {err}. Retrying ...")
 
 

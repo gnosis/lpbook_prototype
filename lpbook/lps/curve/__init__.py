@@ -12,9 +12,10 @@ from typing import Dict, List
 import aiohttp
 from lpbook import (LPAsyncProxy, LPDriver, LPSyncProxy,
                     LPSyncProxyFromAsyncProxy)
+from lpbook.error import TemporaryError
 from lpbook.lps.curve.subgraph import CurveGraphQLClient
 from lpbook.util import LP, Token
-from lpbook.web3 import Block, create_token_from_web3
+from lpbook.web3 import BlockId, create_token_from_web3
 from lpbook.web3.block_stream import BlockStream
 from web3.constants import ADDRESS_ZERO
 from web3.exceptions import BlockNotFound
@@ -59,6 +60,7 @@ class Curve(LP):
             'balances': self.balances
         }
 
+
 class CurveWeb3AsyncProxy(LPAsyncProxy):
     """"Proxies the state of the curve LP through web3."""
 
@@ -79,9 +81,9 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
                 abi=registry_contract_abi
             )
 
-    async def latest_block(self) -> Block:
+    async def latest_block(self) -> BlockId:
         block = await self.client.eth.get_block()
-        return Block(number=block.number, hash=block.hash.hex())
+        return BlockId(number=block.number, hash=block.hash.hex())
 
     @cache
     def get_tokens(self, lp_id_chksum) -> List[Token]:
@@ -93,18 +95,9 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
             i += 1
         return tokens
 
-    def get_block_identifier(self, block_number, block_hash):
-        if block_hash is not None:
-            return block_hash
-        elif block_number is not None:
-            return block_number
-        else:
-            return 'latest'
-
-    def create_from_blockchain(self, lp_id, block_number=None, block_hash=None) -> Curve:
-        block_identifier = self.get_block_identifier(block_number, block_hash)
+    def create_from_blockchain(self, lp_id, block: BlockId) -> Curve:
+        block_identifier = block.to_web3()
         lp_id_chksum = self.client.toChecksumAddress(lp_id)
-
         balances = self.registry_contract.functions.get_balances(lp_id_chksum).call(
             block_identifier=block_identifier
         )
@@ -127,14 +120,11 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
 
     async def __call__(
         self,
-        block_number: int = None,
-        block_hash: str = None
+        block: BlockId
     ) -> Dict[str, LP]:
-        short_block_hash = block_hash[:8] if block_hash is not None else None
 
         logger.debug(
-            f'Retrieving curve state from blockchain at block '
-            f'{block_number}/{short_block_hash} ...'
+            f'Retrieving curve state from blockchain at block {block} ...'
         )
 
         state = {}
@@ -144,13 +134,14 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
                 state[lp_id] = await asyncio.to_thread(
                     self.create_from_blockchain,
                     lp_id,
-                    block_number,
-                    block_hash
+                    block
                 )
             except BlockNotFound as e:
-                raise RuntimeError(str(e))
+                raise TemporaryError(str(e))
             except ValueError as e:
-                raise RuntimeError(str(e))
+                if e.args[0]['code'] == -32000:
+                    raise TemporaryError(str(e))
+                raise e
 
         await asyncio.gather(
             *[add_to_state(lp_id) for lp_id in self.lp_ids]
@@ -186,44 +177,35 @@ class CurveTheGraphAsyncProxy(LPAsyncProxy):
             fee=D(thegraph_data.fee),
         )
 
-    async def latest_block(self) -> Block:
+    async def latest_block(self) -> BlockId:
         block = await self.client.get_last_block()
-        return Block(number=block.number, hash=str(block.hash))
+        return BlockId(number=block.number, hash=str(block.hash))
 
     async def __call__(
         self,
-        block_number: int = None,
-        block_hash: str = None
+        block: BlockId
     ) -> Dict[str, LP]:
-        shortened_block_hash = block_hash[:8] if block_hash is not None else None
         logger.debug(
-            'Retrieving curve state from TheGraph at block '
-            f'{block_number}/{shortened_block_hash} ...'
+            f'Retrieving curve state from TheGraph at block {block} ...'
         )
 
-        block = {}
-        if block_hash is not None:
-            block.update(hash=block_hash)
-        elif block_number is not None:
-            block.update(number=block_number)
-
-        extra_kwargs = {}
-        if len(block) > 0:
-            extra_kwargs = {'block': block}
+        extra_kwargs = block.to_thegraph_filter()
 
         # this is to workaround a current thegraph bug (already reported and confirmed),
         # where thegraph replies with arbitrary data when the passed block number/hash is
         # not yet indexed.
-        if block_number is not None:
+        if block.number is not None:
             latest_block_number = (await self.latest_block()).number
-            if block_number > latest_block_number:
+            if block.number > latest_block_number:
                 logger.debug(
                     f'{self} is lagging behind '
-                    f'{block_number - latest_block_number} blocks.'
+                    f'{block.number - latest_block_number} blocks.'
                 )
                 raise RuntimeError(f'Attempt to retrieve a block too recent for {self}')
 
-        lp_filter = {'id_in': self.lp_ids}
+        lp_filter = {
+            'id_in': self.lp_ids,
+        }
         thegraph_data = [
             pool
             async for pool in self.client.get_pools_state(lp_filter, None, **extra_kwargs)
@@ -271,8 +253,19 @@ class CurveDriver(LPDriver):
         return sync_proxy
 
     async def get_lp_ids(self, token_ids: List[str]) -> List[str]:
+        DENYLIST = [
+            # For some reason can't interact with this pool
+            '0x80466c64868e1ab14a1ddf27a676c3fcbe638fe5'
+        ]
         return {
             lp.id
-            async for lp in self.graphql_client.get_pools_state({'isMeta': False})
+            async for lp in self.graphql_client.get_pools_state(
+                {
+                    'is_meta': False,
+                    'removed_at': None,
+                    'registry_contract': CurveWeb3AsyncProxy.REGISTRY_CONTRACT_ADDRESS,
+                    'id_not_in': DENYLIST
+                }
+            )
             if len({coin.token.id for coin in lp.coins} & set(token_ids)) >= 2
         }

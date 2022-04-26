@@ -1,14 +1,15 @@
 import asyncio
+from configparser import RawConfigParser
 from enum import Enum
 import logging
 from abc import ABC, abstractmethod
 from typing import Any, Dict, List
 
 from lpbook.util import LP, traced
-from lpbook.web3 import Block
+from lpbook.web3 import BlockId
 from lpbook.web3.block_stream import BlockStream
 from lpbook.web3.RecentEventLog import RecentEventLog
-from lpbook.error import CacheMissError
+from lpbook.error import CacheMissError, TemporaryError
 
 logger = logging.getLogger(__name__)
 
@@ -40,12 +41,12 @@ class RecentStateCache:
                 f'Cound not find block {block_hash} in recent state cache.'
             )
 
-    def get_at_block(self, block_number: int = None, block_hash: str = None) -> Any:
+    def get_at_block(self, block: BlockId) -> Any:
         """Returns the state at block if given, otherwise return most recently added."""
-        if block_hash is not None:
-            return self.get_at_block_hash(block_hash)
-        elif block_number is not None:
-            return self.get_at_block_number(block_number)
+        if block.hash is not None:
+            return self.get_at_block_hash(block.hash)
+        elif block.number is not None:
+            return self.get_at_block_number(block.number)
         return self.get_most_recently_added()
 
     def get_most_recently_added(self) -> Any:
@@ -55,14 +56,15 @@ class RecentStateCache:
             )
         return self.state_by_block_hash[self.recent_block_hashes[-1]]
 
-    def add(self, block_number: int, block_hash: str, state) -> None:
-        self.recent_block_numbers.append(block_number)
-        self.recent_block_hashes.append(block_hash)
-        self.state_by_block_hash[block_hash] = state
+    def add(self, block: BlockId, state) -> None:
+        assert block.is_fully_qualified()
+        self.recent_block_numbers.append(block.number)
+        self.recent_block_hashes.append(block.hash)
+        self.state_by_block_hash[block.hash] = state
         # Keep cache maximum size.
         if len(self.recent_block_numbers) > self.cache_size:
             assert len(self.recent_block_numbers) == self.cache_size + 1
-            self.state_by_block_hash.pop(self.recent_block_hashes[0])
+            self.state_by_block_hash.pop(self.recent_block_hashes[0], None)
             self.recent_block_hashes = self.recent_block_hashes[1:]
             self.recent_block_numbers = self.recent_block_numbers[1:]
 
@@ -74,11 +76,11 @@ class LPAsyncProxy(ABC):
     call to the proxied data source.
     """
     @abstractmethod
-    async def __call__(self, block_number=None, block_hash=None) -> Dict[str, LP]:
+    async def __call__(self, block: BlockId) -> Dict[str, LP]:
         """Returns a dictionary of LP states indexed by their LP id, at given block."""
 
     @abstractmethod
-    async def latest_block(self) -> Block:
+    async def latest_block(self) -> BlockId:
         """Returns the block of the latest state in the collection."""
 
 
@@ -90,7 +92,7 @@ class LPSyncProxy(ABC):
     out of sync.
     """
     @abstractmethod
-    def __call__(self, block_number: int = None) -> Dict[str, LP]:
+    def __call__(self, block: BlockId) -> Dict[str, LP]:
         """Returns the recent state if synced, or an error otherwise."""
 
     @abstractmethod
@@ -123,29 +125,33 @@ class LPSyncProxyFromAsyncProxy(LPSyncProxy):
 
     async def query_underlying_lp_async_proxy(
         self,
-        block_number: int,
-        block_hash: str
+        block: BlockId
     ):
         # Try hard to keep it in sync.
         while True:
             try:
-                state = await self.underlying_lp_async_proxy(
-                    block_number=block_number,
-                    block_hash=block_hash
-                )
+                state = await self.underlying_lp_async_proxy(block)
                 break
-            except RuntimeError as err:
+            except TemporaryError as err:
                 logger.warning(
-                    f'Could not obtain state for block {block_number} from '
+                    f'Could not obtain state for block {block} from '
                     f'underlying lp async proxy:\n\t{err}\n\tRetrying in 5 seconds ...'
                 )
                 await asyncio.sleep(5)
 
-        self.recent_state_cache.add(block_number, block_hash, state)
+            except Exception as err:
+                logger.error(
+                    f'Could not obtain state for block {block} from '
+                    f'underlying lp async proxy:\n\t{err}\n\t'
+                    'Exiting since data is now potentially inconsistent.'
+                )
+                raise
 
-    def __call__(self, block_number: int = None, block_hash: str = None) -> Dict[str, LP]:
+        self.recent_state_cache.add(block=block, state=state)
+
+    def __call__(self, block: BlockId) -> Dict[str, LP]:
         """Returns the required state if cached, or raise a CacheMissError otherwise."""
-        return self.recent_state_cache.get_at_block(block_number, block_hash)
+        return self.recent_state_cache.get_at_block(block)
 
     async def start(self) -> None:
         pass
@@ -174,19 +180,20 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         latest_block = await self.async_proxy.latest_block()
         start_block_number = latest_block.number - self.MAX_NR_BLOCKS_TO_CHECKPOINT
         start_block_hash = self.web3_client.eth.get_block(start_block_number).hash.hex()
-        self.checkpoint = await self.async_proxy(start_block_number, start_block_hash)
+        start_block = BlockId(number=start_block_number, hash=start_block_hash)
+        self.checkpoint = await self.async_proxy(start_block)
 
         await self.event_log.start(
             self.lp_ids,
             self.events,
-            start_block_number
+            start_block.number
         )
 
     @traced(logger, 'Stopping LPFromInitialStatePlusChangesProxy')
     def stop(self) -> None:
         self.event_log.stop()
 
-    def __call__(self, block_number: int = None, block_hash: str = None) -> Dict[str, LP]:
+    def __call__(self, block: BlockId) -> Dict[str, LP]:
         """Returns a list of lps with state at (the end of) given block.
 
         If block hash is specified, then return lps state at that block if possible,
@@ -196,9 +203,9 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         otherwise will raise a CacheMissError.
         """
 
-        logger.debug(f'Querying {self} (block={block_number}) ...')
+        logger.debug(f'Querying {self} (block={block}) ...')
 
-        events_since_checkpoint = self.event_log(block_number, block_hash)
+        events_since_checkpoint = self.event_log(block)
         state = self.get_state(self.checkpoint, events_since_checkpoint)
 
         # Update checkpoint to computed state to save extra computation and memory on
@@ -208,9 +215,12 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
             nr_blocks_to_free = self.event_log.block_count - \
                 self.MAX_NR_BLOCKS_TO_CHECKPOINT
             min_start_block_number = self.event_log.start_block_number + nr_blocks_to_free
-            events_since_checkpoint = self.event_log(min_start_block_number - 1)
+            min_start_block = BlockId(number=min_start_block_number - 1)
+            events_since_checkpoint = self.event_log(min_start_block)
             self.checkpoint = self.get_state(self.checkpoint, events_since_checkpoint)
             self.event_log.update_start_block(min_start_block_number)
+
+        logger.debug(f'Querying {self} (block={block}) ... done')
 
         return state
 
