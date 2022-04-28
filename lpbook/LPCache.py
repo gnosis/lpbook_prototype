@@ -107,7 +107,6 @@ class LPCache:
         if new_lp_ids == cur_lp_ids:
             return (cur_lp_sync_proxy, cur_lp_ids, cur_lp_gas_stats)
 
-        print(f"Starting proxy because ids different for protocol {driver.protocol}: +{new_lp_ids - cur_lp_ids} / -{cur_lp_ids - new_lp_ids}")
         new_lp_sync_proxy = driver.create_lp_sync_proxy(
             new_lp_ids,
             LPDriver.LPSyncProxyDataSource.Default
