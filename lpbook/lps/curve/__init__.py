@@ -18,7 +18,7 @@ from lpbook.util import LP, Token
 from lpbook.web3 import BlockId, create_token_from_web3
 from lpbook.web3.block_stream import BlockStream
 from web3.constants import ADDRESS_ZERO
-from web3.exceptions import BlockNotFound
+from web3.exceptions import BlockNotFound, ContractLogicError
 
 setcontext(Context(prec=MAX_PREC, Emax=MAX_EMAX, Emin=MIN_EMIN))
 
@@ -98,6 +98,7 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
     def create_from_blockchain(self, lp_id, block: BlockId) -> Curve:
         block_identifier = block.to_web3()
         lp_id_chksum = self.client.toChecksumAddress(lp_id)
+
         balances = self.registry_contract.functions.get_balances(lp_id_chksum).call(
             block_identifier=block_identifier
         )
@@ -108,6 +109,7 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
         parameters = self.registry_contract.functions.get_parameters(lp_id_chksum).call(
             block_identifier=block_identifier
         )
+
         PARAMETER_A_IDX = 0
         PARAMETER_FEE_IDX = 2
         return Curve(
@@ -138,6 +140,11 @@ class CurveWeb3AsyncProxy(LPAsyncProxy):
                 )
             except BlockNotFound as e:
                 raise TemporaryError(str(e))
+            except ContractLogicError as e:
+                logger.error(
+                    f"Transaction reverted when querying pool {lp_id}. Consider denylisting."
+                )
+                raise e
             except ValueError as e:
                 if e.args[0]['code'] == -32000:
                     raise TemporaryError(str(e))
@@ -254,8 +261,10 @@ class CurveDriver(LPDriver):
 
     async def get_lp_ids(self, token_ids: List[str]) -> List[str]:
         DENYLIST = [
-            # For some reason can't interact with this pool
-            '0x80466c64868e1ab14a1ddf27a676c3fcbe638fe5'
+            # For some reason can't interact with these pools
+            '0x80466c64868e1ab14a1ddf27a676c3fcbe638fe5',
+            '0x4e0915c88bc70750d68c481540f081fefaf22273',
+            '0x1005f7406f32a61bd760cfa14accd2737913d546'
         ]
         return {
             lp.id
@@ -263,7 +272,7 @@ class CurveDriver(LPDriver):
                 {
                     'is_meta': False,
                     'removed_at': None,
-                    'registry_contract': CurveWeb3AsyncProxy.REGISTRY_CONTRACT_ADDRESS,
+                    'registry_address': CurveWeb3AsyncProxy.REGISTRY_CONTRACT_ADDRESS,
                     'id_not_in': DENYLIST
                 }
             )
