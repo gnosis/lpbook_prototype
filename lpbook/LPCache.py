@@ -100,7 +100,7 @@ class LPCache:
             return (cur_lp_sync_proxy, cur_lp_ids, cur_lp_gas_stats)
 
         if len(new_lp_ids) == 0:
-            return ([], set(), None)
+            return (lambda _: {}, set(), {})
 
         # optimization: no need to reset proxies that return
         # the same set of pools as last time.
