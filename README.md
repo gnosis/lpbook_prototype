@@ -6,6 +6,16 @@ python3 -m venv venv
 pip install -r requirements.txt
 ```
 
+then install git large file storage:
+
+https://docs.github.com/en/repositories/working-with-files/managing-large-files/installing-git-large-file-storage 
+
+and run
+
+```bash
+git lfs pull 
+```
+
 # Run
 
 The environment variables HTTP_WEB3_URL and WS_WEB3_URL need to be set (an .env file is ok too). They should point to the http and websocket endpoint of an ethereum node, e.g.
