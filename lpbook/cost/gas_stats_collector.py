@@ -11,8 +11,9 @@ from dotenv import load_dotenv
 from lpbook.util import traced, traced_context
 from scipy.stats import describe
 
-from .dune_analytics import DuneAnalytics, Network
-
+#from .dune_analytics import DuneAnalytics, Network
+from duneapi.api import DuneAPI
+from duneapi.types import DuneQuery, Network
 
 load_dotenv()
 
@@ -50,7 +51,7 @@ class GasStatsCollector:
     def get_query(cls, from_date_time, to_date_time):
         from_date_time_str = from_date_time.strftime('%Y-%m-%d %H:%M')
         to_date_time_str = to_date_time.strftime('%Y-%m-%d %H:%M')
-        query = f"""
+        raw_sql = f"""
         select concat(project, '_', version) as project_and_version,
         exchange_contract_address as address,
         ethereum.transactions.gas_used,
@@ -62,7 +63,10 @@ class GasStatsCollector:
         dex.trades.block_time >= '{from_date_time_str}' and
         dex.trades.block_time < '{to_date_time_str}'
         """
-        return query
+        return DuneQuery.from_environment(
+            raw_sql=raw_sql,
+            network=Network.MAINNET,
+        )
 
     def load_trade_data_from_disk(self):
         with open(self.DATAFILE, 'rb') as f:
@@ -74,16 +78,14 @@ class GasStatsCollector:
 
     @traced(logger, 'Querying dex trades from Dune Analytics')
     async def load_trade_data_from_dune(self, start_time, end_time):
-        dune_connection = DuneAnalytics.new_from_environment()
+        dune_connection = DuneAPI.new_from_environment()
         max_time_per_query = datetime.timedelta(days=7)
         data = []
         while start_time < end_time:
             next_start_time = min(end_time, start_time + max_time_per_query)
             data += await asyncio.to_thread(
                 dune_connection.fetch,
-                query_str=self.get_query(start_time, next_start_time),
-                network=Network.MAINNET,
-                parameters=[]
+                self.get_query(start_time, next_start_time),
             )
             start_time = next_start_time
             if start_time < end_time:
