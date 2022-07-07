@@ -87,7 +87,7 @@ class UniV3TheGraphProxy(LPAsyncProxy):
                     int(tick.tick_idx): int(tick.liquidity_net)
                     for tick in thegraph_data.ticks
                 },
-                fee=D(thegraph_data.fee_tier)/D(10000)
+                fee=D(thegraph_data.fee_tier)/D(1000000)
             )
         except TypeError:
             # Ignore ill-defined pools.
