@@ -52,7 +52,7 @@ class UniV3(LP):
     def state(self) -> Dict:
         return {
             'sqrt_price': self.sqrt_price,
-            'liquidiy': self.liquidity,
+            'liquidity': self.liquidity,
             'tick': self.tick,
             'liquidity_net': self.liquidity_net,
             'fee': self.fee
