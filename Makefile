@@ -1,3 +1,5 @@
+all: update-uniswap-v3-graphql-schema update-curve-graphql-schema fetch-curve-contract_abis update-uniswap-v2-graphql-schema
+
 update-uniswap-v3-graphql-schema:
 	python -m sgqlc.introspection --exclude-deprecated --exclude-description https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v3 uniswap_v3_graphql_schema.json
 	sgqlc-codegen schema uniswap_v3_graphql_schema.json lpbook/lps/uniswap_v3/artifacts/graphql_schema.py
@@ -34,3 +36,8 @@ fetch-curve-contract_abis:
 		0xf178c0b5bb7e7abf4e12a4838c7b7c5ba2c623c0 `# link` 		\
 		0xf9440930043eb3997fc70e1339dbb11f341de7a8 `# reth` 		\
 		0xfd5db7463a3ab53fd211b4af195c5bccc1a03890 `# eurt`
+
+update-uniswap-v2-graphql-schema:
+	python -m sgqlc.introspection --exclude-deprecated --exclude-description https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2 uniswap_v2_graphql_schema.json
+	sgqlc-codegen schema uniswap_v2_graphql_schema.json lpbook/lps/uniswap_v2/artifacts/graphql_schema.py
+	rm uniswap_v2_graphql_schema.json
