@@ -77,7 +77,7 @@ class UniV3GraphQLClient(GraphQLClient):
 
     def get_ticks(self, ticks_filter, **kwargs):
         """Get pool ticks."""
-        # ticks_filter.update({'liquidity_net_gt': 0})
+        ticks_filter.update({'liquidity_net_not': 0})
         return self.paginated_on_id(partial(self.get_ticks_page, ticks_filter, **kwargs))
 
     async def get_pool_state(self, pool_id, **kwargs):
