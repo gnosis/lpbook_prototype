@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from lpbook import LPDriver
 from lpbook.lps.curve import CurveDriver
 from lpbook.lps.uniswap_v3 import UniV3Driver
+from lpbook.lps.uniswap_v2 import UniV2Driver
 from lpbook.util import traced_context
 from lpbook.web3 import BlockId
 from lpbook.web3.block_stream import BlockStream
@@ -156,5 +157,31 @@ async def test_curve():
         await assert_equivalent_proxies(w3, proxy_thegraph, proxy_web3, block_stream, 10)
 
 
-asyncio.run(test_uniswap_v3())
+async def test_uniswap_v2():
+    token_ids = {
+        '0x6b175474e89094c44da98b954eedeac495271d0f',
+        '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48'.lower()
+    }
+
+    # w3 = Web3(Web3.WebsocketProvider(WS_WEB3_URL))
+    w3 = Web3(Web3.HTTPProvider(HTTP_WEB3_URL))
+
+    block_stream = BlockStream(WS_WEB3_URL)
+    async with aiohttp.ClientSession() as session:
+        driver = UniV2Driver(block_stream, session, w3)
+
+        lp_ids = await driver.get_lp_ids(token_ids)
+        proxy_thegraph = driver.create_lp_sync_proxy(
+            lp_ids,
+            LPDriver.LPSyncProxyDataSource.TheGraph
+        )
+        proxy_web3 = driver.create_lp_sync_proxy(
+            lp_ids,
+            LPDriver.LPSyncProxyDataSource.Web3
+        )
+
+        await assert_equivalent_proxies(w3, proxy_thegraph, proxy_web3, block_stream, 10)
+
+# asyncio.run(test_uniswap_v3())
 # asyncio.run(test_curve())
+asyncio.run(test_uniswap_v2())

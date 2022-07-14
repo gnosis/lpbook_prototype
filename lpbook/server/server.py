@@ -13,6 +13,7 @@ from lpbook.cost.gas_stats_collector import GasStatsCollector
 from lpbook.LPCache import LPCache
 from lpbook.lps.curve import CurveDriver
 from lpbook.lps.uniswap_v3 import UniV3Driver
+from lpbook.lps.uniswap_v2 import UniV2Driver
 from lpbook.web3.block_stream import BlockStream
 from lpbook.web3.event_stream import ServerFilteredEventStream
 from pydantic import BaseSettings
@@ -88,9 +89,10 @@ async def on_startup():
     # LP drivers
     univ3_driver = UniV3Driver(event_stream, block_stream, aiohttp_session, w3)
     curve_driver = CurveDriver(block_stream, aiohttp_session, w3)
+    univ2_driver = UniV2Driver(block_stream, aiohttp_session, w3)
 
     # Create LP Cache (main service)
-    lp_cache = LPCache([univ3_driver, curve_driver], gas_stats_collector)
+    lp_cache = LPCache([univ2_driver, univ3_driver, curve_driver], gas_stats_collector)
 
     asyncio.ensure_future(block_stream.run())
     asyncio.ensure_future(gas_stats_collector.run())
