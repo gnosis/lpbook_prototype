@@ -15,13 +15,32 @@ from scipy.stats import describe
 from duneapi.api import DuneAPI
 from duneapi.types import DuneQuery, Network
 
+from contextlib import contextmanager
+
 import signal
 
 
-def force_exit(signal, _frame):
-    print(f'Got signal {signal}. Forcing exit.')
-    import os
-    os._exit(1)
+# Anything inside a "forced_exit" context will exit when receiving one
+# of the signals passed as parameters.
+@contextmanager
+def forced_exit(*args):
+    def force_exit(signal, _frame):
+        print(f'Got signal {signal}. Forcing exit.')
+        import os
+        os._exit(1)
+
+    # Store current signal handlers so that they can be restored later
+    cur_signal_handler = {}
+    for sig in args:
+        cur_signal_handler[sig] = signal.getsignal(sig)
+        # redirect signal to "force_exit" function above.
+        signal.signal(sig, force_exit)
+    try:
+        yield
+    finally:
+        # Restore signal handlers.
+        for sig, sighandler in cur_signal_handler.items():
+            signal.signal(sig, sighandler)
 
 
 load_dotenv()
@@ -85,15 +104,7 @@ class GasStatsCollector:
         with open(self.DATAFILE, 'wb+') as f:
             pickle.dump(self.data, f)
 
-    @traced(logger, 'Querying dex trades from Dune Analytics')
-    async def load_trade_data_from_dune(self, start_time, end_time):
-        # For some reason can't deliver these signals while in this function
-        # (maybe duneapi is bypassing exceptions and there is a lock when trying to close
-        # the connection).
-        # The following two lines makes sure the process is killed.
-        signal.signal(signal.SIGINT, force_exit)
-        signal.signal(signal.SIGTERM, force_exit)
-
+    async def load_trade_data_from_dune_helper(self, start_time, end_time):
         dune_connection = DuneAPI.new_from_environment()
         max_time_per_query = datetime.timedelta(days=7)
         data = []
@@ -106,7 +117,16 @@ class GasStatsCollector:
             start_time = next_start_time
             if start_time < end_time:
                 await asyncio.sleep(10)
+
         return data
+
+    @traced(logger, 'Querying dex trades from Dune Analytics')
+    async def load_trade_data_from_dune(self, start_time, end_time):
+        # For some reason can't deliver these signals while in this function
+        # (maybe duneapi is bypassing exceptions and there is a lock when trying to close
+        # the connection).
+        with forced_exit(signal.SIGINT, signal.SIGTERM):
+            return await self.load_trade_data_from_dune_helper(start_time, end_time)
 
     def __call__(self, project_and_version, address):
         address = address.replace('0x', '\\x')
