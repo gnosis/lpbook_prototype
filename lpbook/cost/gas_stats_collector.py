@@ -15,6 +15,15 @@ from scipy.stats import describe
 from duneapi.api import DuneAPI
 from duneapi.types import DuneQuery, Network
 
+import signal
+
+
+def force_exit(signal, _frame):
+    print(f'Got signal {signal}. Forcing exit.')
+    import os
+    os._exit(1)
+
+
 load_dotenv()
 
 logging.config.fileConfig(fname='logging.conf', disable_existing_loggers=True)
@@ -78,6 +87,13 @@ class GasStatsCollector:
 
     @traced(logger, 'Querying dex trades from Dune Analytics')
     async def load_trade_data_from_dune(self, start_time, end_time):
+        # For some reason can't deliver these signals while in this function
+        # (maybe duneapi is bypassing exceptions and there is a lock when trying to close
+        # the connection).
+        # The following two lines makes sure the process is killed.
+        signal.signal(signal.SIGINT, force_exit)
+        signal.signal(signal.SIGTERM, force_exit)
+
         dune_connection = DuneAPI.new_from_environment()
         max_time_per_query = datetime.timedelta(days=7)
         data = []
@@ -89,7 +105,7 @@ class GasStatsCollector:
             )
             start_time = next_start_time
             if start_time < end_time:
-                asyncio.sleep(10)
+                await asyncio.sleep(10)
         return data
 
     def __call__(self, project_and_version, address):
