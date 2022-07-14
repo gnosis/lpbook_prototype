@@ -42,7 +42,7 @@ pycryptodome==3.14.1
 pydantic==1.9.0
 pyflakes==2.4.0
 pyrsistent==0.18.1
-python-dotenv==0.19.2
+python-dotenv==0.20.0
 PyYAML==6.0
 requests==2.27.1
 rlp==2.0.1

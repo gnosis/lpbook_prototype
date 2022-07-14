@@ -52,7 +52,7 @@ class UniV3(LP):
     def state(self) -> Dict:
         return {
             'sqrt_price': self.sqrt_price,
-            'liquidiy': self.liquidity,
+            'liquidity': self.liquidity,
             'tick': self.tick,
             'liquidity_net': self.liquidity_net,
             'fee': self.fee
@@ -87,7 +87,7 @@ class UniV3TheGraphProxy(LPAsyncProxy):
                     int(tick.tick_idx): int(tick.liquidity_net)
                     for tick in thegraph_data.ticks
                 },
-                fee=D(thegraph_data.fee_tier)/D(10000)
+                fee=D(thegraph_data.fee_tier)/D(1000000)
             )
         except TypeError:
             # Ignore ill-defined pools.
