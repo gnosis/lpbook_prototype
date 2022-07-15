@@ -1,5 +1,6 @@
 
 import asyncio
+from copy import deepcopy
 import logging
 from dataclasses import dataclass
 from decimal import MAX_EMAX, MAX_PREC, MIN_EMIN, Context
@@ -7,17 +8,19 @@ from decimal import Decimal as D
 from decimal import setcontext
 from functools import cache
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Any, Dict, List, Tuple
 
 import aiohttp
-from lpbook import (LPAsyncProxy, LPDriver, LPSyncProxy,
+from lpbook import (LPAsyncProxy, LPDriver, LPFromInitialStatePlusChangesProxy, LPSyncProxy,
                     LPSyncProxyFromAsyncProxy)
 from lpbook.error import TemporaryError
 from lpbook.lps.uniswap_v2.subgraph import UniV2GraphQLClient
 from lpbook.util import LP, Token
-from lpbook.web3 import BlockId
+from lpbook.web3 import BlockId, create_token_from_web3
 from lpbook.web3.block_stream import BlockStream
 from web3.exceptions import BlockNotFound, ContractLogicError
+
+from lpbook.web3.event_stream import EventStream
 
 setcontext(Context(prec=MAX_PREC, Emax=MAX_EMAX, Emin=MIN_EMIN))
 
@@ -74,9 +77,6 @@ class UniV2Web3AsyncProxy(LPAsyncProxy):
                     abi=contract_abi
                 )
 
-        with open(Path(__file__).parent / 'artifacts' / 'erc20.abi', 'r') as f:
-            self.erc20_contract_abi = f.read()
-
     async def latest_block(self) -> BlockId:
         block = await self.client.eth.get_block()
         return BlockId(number=block.number, hash=block.hash.hex())
@@ -86,18 +86,12 @@ class UniV2Web3AsyncProxy(LPAsyncProxy):
         token0_address = self.contracts[lp_id].functions.token0().call().lower()
         token1_address = self.contracts[lp_id].functions.token1().call().lower()
 
-        r = []
+        tokens = []
         for token_address in [token0_address, token1_address]:
             address_chksum = self.client.toChecksumAddress(token_address)
-            token_contract = self.client.eth.contract(
-                address=address_chksum,
-                abi=self.erc20_contract_abi
-            )
-            decimals = token_contract.functions.decimals().call()
-            symbol = token_contract.functions.symbol().call()
-            r.append(Token(token_address, symbol, decimals))
+            tokens.append(create_token_from_web3(address_chksum, self.client))
 
-        return r
+        return tokens
 
     def create_from_blockchain(self, lp_id, block: BlockId) -> UniV2:
         block_identifier = block.to_web3()
@@ -162,12 +156,12 @@ class UniV2TheGraphAsyncProxy(LPAsyncProxy):
             Token(
                 address=thegraph_data.token0.id,
                 symbol=thegraph_data.token0.symbol,
-                decimals=thegraph_data.token0.decimals
+                decimals=int(thegraph_data.token0.decimals)
             ),
             Token(
                 address=thegraph_data.token1.id,
                 symbol=thegraph_data.token1.symbol,
-                decimals=thegraph_data.token1.decimals
+                decimals=int(thegraph_data.token1.decimals)
             )
         ]
         balances = [
@@ -223,14 +217,63 @@ class UniV2TheGraphAsyncProxy(LPAsyncProxy):
         return state
 
 
+class UniV2TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
+    """Queries TheGraph for an initial state, and web3 for state updates."""
+
+    def __init__(self, lp_ids, async_proxy, event_stream, web3_client):
+        # read abi from same directory as this file.
+        with open(Path(__file__).parent / 'artifacts' / 'uniswap_v2.abi', 'r') as f:
+            contract_abi = f.read()
+        UniV2 = web3_client.eth.contract(abi=contract_abi)
+
+        super().__init__(
+            lp_ids,
+            [UniV2.events.Swap, UniV2.events.Burn, UniV2.events.Mint],
+            async_proxy,
+            event_stream,
+            web3_client
+        )
+
+    def get_state(self, prev_state: Dict[str, LP], changes: List[Any]) -> Dict[str, LP]:
+        """Assembles state from previous state and updates."""
+
+        cur_state = deepcopy(prev_state)
+
+        for d in changes:
+            lp_id = d.address.lower()
+            assert lp_id in cur_state.keys()
+            lp_cur_state = cur_state[lp_id]
+
+            if d.event == 'Swap':
+                lp_cur_state.balances[0] += d.args.amount0In
+                lp_cur_state.balances[0] -= d.args.amount0Out
+                lp_cur_state.balances[1] += d.args.amount1In
+                lp_cur_state.balances[1] -= d.args.amount1Out
+
+            elif d.event == 'Mint':
+                lp_cur_state.balances[0] += d.args.amount0
+                lp_cur_state.balances[1] += d.args.amount1
+
+            elif d.event == 'Burn':
+                lp_cur_state.balances[0] -= d.args.amount0
+                lp_cur_state.balances[1] -= d.args.amount1
+
+            else:
+                assert False
+
+        return cur_state
+
+
 class UniV2Driver(LPDriver):
     def __init__(
         self,
+        event_stream: EventStream,
         block_stream: BlockStream,
         session: aiohttp.ClientSession,
         web3_client=None
     ):
         super().__init__(UniV2)
+        self.event_stream = event_stream
         self.block_stream = block_stream
         self.web3_client = web3_client
         self.graphql_client = UniV2GraphQLClient(session)
@@ -243,8 +286,18 @@ class UniV2Driver(LPDriver):
     ) -> LPSyncProxy:
         if data_source in [
             LPDriver.LPSyncProxyDataSource.Default,
-            LPDriver.LPSyncProxyDataSource.Web3
+            LPDriver.LPSyncProxyDataSource.TheGraphAndWeb3
         ]:
+            async_proxy = UniV2TheGraphAsyncProxy(
+                lp_ids, self.graphql_client
+            )
+            return UniV2TheGraphAndWeb3Proxy(
+                lp_ids,
+                async_proxy,
+                self.event_stream,
+                self.web3_client
+            )
+        elif data_source == LPDriver.LPSyncProxyDataSource.Web3:
             async_proxy = UniV2Web3AsyncProxy(lp_ids, self.web3_client)
         else:
             assert data_source == LPDriver.LPSyncProxyDataSource.TheGraph
@@ -257,9 +310,19 @@ class UniV2Driver(LPDriver):
         return sync_proxy
 
     async def get_lp_ids(self, token_ids: List[str]) -> List[str]:
+        def is_valid_token(token):
+            return token.symbol is not None and len(token.symbol) > 0 and \
+                token.decimals is not None
+
         return [
-            state.id async for state in self.graphql_client.get_pairs_state(
-                {'token0_in': token_ids, 'token1_in': token_ids},
-                field_setter=self.graphql_client.set_pair_id_field
+            state.id
+            async for state in self.graphql_client.get_pairs_state(
+                {
+                    'token0_in': token_ids,
+                    'token1_in': token_ids,
+                    'volume_usd_gt': 1000
+                },
+                field_setter=self.graphql_client.set_pair_id_and_tokens_fields
             )
+            if is_valid_token(state.token0) and is_valid_token(state.token1)
         ]

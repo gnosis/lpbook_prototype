@@ -14,7 +14,7 @@ def create_token_from_web3(address, web3_client):
 
     try:
         symbol = erc20.functions.symbol().call()
-    except ContractLogicError:
+    except (ContractLogicError, OverflowError):
         symbol = ''
     try:
         decimals = erc20.functions.decimals().call()

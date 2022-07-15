@@ -14,7 +14,7 @@ class UniV2GraphQLClient(GraphQLClient):
     def __init__(self, session: aiohttp.ClientSession):
         super().__init__(self.url, session)
 
-    def set_pair_state_fields(self, pair):
+    def set_pair_id_and_tokens_fields(self, pair):
         pair.id()
         pair.token0().id()
         pair.token0().symbol()
@@ -22,11 +22,11 @@ class UniV2GraphQLClient(GraphQLClient):
         pair.token1().id()
         pair.token1().symbol()
         pair.token1().decimals()
+
+    def set_pair_state_fields(self, pair):
+        self.set_pair_id_and_tokens_fields(pair)
         pair.reserve0()
         pair.reserve1()
-
-    def set_pair_id_field(self, pair):
-        pair.id()
 
     async def get_pairs_page(self, pairs_filter, field_setter, last_id, first, **kwargs):
         op = Operation(schema.Query)

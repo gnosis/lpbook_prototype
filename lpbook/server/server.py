@@ -78,7 +78,13 @@ async def on_startup():
     WS_WEB3_URL = os.getenv('WS_WEB3_URL')
 
     # Components common to all drivers.
-    w3 = Web3(Web3.HTTPProvider(HTTP_WEB3_URL))
+    import requests
+    requests_adapter = requests.adapters.HTTPAdapter(pool_connections=20, pool_maxsize=20)
+    requests_session = requests.Session()
+    requests_session.mount('http://', requests_adapter)
+    requests_session.mount('https://', requests_adapter)
+    w3 = Web3(Web3.HTTPProvider(HTTP_WEB3_URL, session=requests_session))
+
     block_stream = BlockStream(WS_WEB3_URL)
     event_stream = ServerFilteredEventStream(block_stream, w3)
     aiohttp_session = aiohttp.ClientSession()
@@ -89,10 +95,11 @@ async def on_startup():
     # LP drivers
     univ3_driver = UniV3Driver(event_stream, block_stream, aiohttp_session, w3)
     curve_driver = CurveDriver(block_stream, aiohttp_session, w3)
-    univ2_driver = UniV2Driver(block_stream, aiohttp_session, w3)
+    univ2_driver = UniV2Driver(event_stream, block_stream, aiohttp_session, w3)
 
     # Create LP Cache (main service)
-    lp_cache = LPCache([univ2_driver, univ3_driver, curve_driver], gas_stats_collector)
+    #lp_cache = LPCache([univ2_driver, univ3_driver, curve_driver], gas_stats_collector)
+    lp_cache = LPCache([univ2_driver], gas_stats_collector)
 
     asyncio.ensure_future(block_stream.run())
     asyncio.ensure_future(gas_stats_collector.run())

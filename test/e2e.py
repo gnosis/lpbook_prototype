@@ -167,8 +167,9 @@ async def test_uniswap_v2():
     w3 = Web3(Web3.HTTPProvider(HTTP_WEB3_URL))
 
     block_stream = BlockStream(WS_WEB3_URL)
+    event_stream = ServerFilteredEventStream(block_stream, w3)
     async with aiohttp.ClientSession() as session:
-        driver = UniV2Driver(block_stream, session, w3)
+        driver = UniV2Driver(event_stream, block_stream, session, w3)
 
         lp_ids = await driver.get_lp_ids(token_ids)
         proxy_thegraph = driver.create_lp_sync_proxy(
