@@ -135,16 +135,19 @@ class LP:
     def state(self) -> Dict:
         """Returns the internal state of the LP (e.g. the two reserves for uniswapV2)."""
 
+    @abstractproperty
+    def gas_stats(self) -> Dict:
+        """Returns gas stats for swapping using this pool."""
+
     def marshall(self) -> Dict:
         """Encodes itself to a dict with a common API."""
         api = {
             'address': self.uid,
             'protocol': self.protocol,
             'tokens': self.tokens,
-            'state': self.state
+            'state': self.state,
+            'gas_stats': self.gas_stats
         }
-        if hasattr(self, 'gas_stats'):
-            api['gas_stats'] = self.gas_stats
         try:
             return stringify_numbers(to_dict(api), {'decimals'})
         except NotImplementedError:

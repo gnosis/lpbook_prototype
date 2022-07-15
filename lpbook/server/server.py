@@ -9,7 +9,6 @@ import aiohttp
 import uvicorn
 from dotenv import load_dotenv
 from fastapi import Depends, FastAPI, Request
-from lpbook.cost.gas_stats_collector import GasStatsCollector
 from lpbook.LPCache import LPCache
 from lpbook.lps.curve import CurveDriver
 from lpbook.lps.uniswap_v3 import UniV3Driver
@@ -23,7 +22,6 @@ logger = logging.getLogger(__name__)
 
 aiohttp_session = None
 lp_cache = None
-gas_statistics = None
 
 # ++++ Interface definition ++++
 
@@ -89,20 +87,16 @@ async def on_startup():
     event_stream = ServerFilteredEventStream(block_stream, w3)
     aiohttp_session = aiohttp.ClientSession()
 
-    gas_stats_collector = GasStatsCollector()
-    await gas_stats_collector.initialize()
-
     # LP drivers
     univ3_driver = UniV3Driver(event_stream, block_stream, aiohttp_session, w3)
     curve_driver = CurveDriver(block_stream, aiohttp_session, w3)
     univ2_driver = UniV2Driver(event_stream, block_stream, aiohttp_session, w3)
 
     # Create LP Cache (main service)
-    #lp_cache = LPCache([univ2_driver, univ3_driver, curve_driver], gas_stats_collector)
-    lp_cache = LPCache([univ2_driver], gas_stats_collector)
+    #lp_cache = LPCache([univ2_driver, univ3_driver, curve_driver])
+    lp_cache = LPCache([curve_driver])
 
     asyncio.ensure_future(block_stream.run())
-    asyncio.ensure_future(gas_stats_collector.run())
     asyncio.ensure_future(lp_cache.run())
 
 

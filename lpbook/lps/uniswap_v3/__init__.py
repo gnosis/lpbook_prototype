@@ -58,6 +58,19 @@ class UniV3(LP):
             'fee': self.fee
         }
 
+    @classmethod
+    @property
+    def gas_stats(self) -> Dict:
+        # See https://dune.com/queries/1044812 .
+        return {
+            'nr_obs': 165651,
+            'mean': 108163.62455403227,
+            'stddev': 32600.71669325,
+            'min': 36309,
+            'max': 2862123,
+            'median': 105049
+        }
+
 
 class UniV3TheGraphProxy(LPAsyncProxy):
     """Loads the state of liquidity from TheGraph."""

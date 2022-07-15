@@ -58,6 +58,19 @@ class UniV2(LP):
             'balances': self.balances
         }
 
+    @classmethod
+    @property
+    def gas_stats(self) -> Dict:
+        # See https://dune.com/queries/1043253 .
+        return {
+            'nr_obs': 39409,
+            'mean': 112091.89634347484,
+            'stddev': 42717.69677854,
+            'min': 30132,
+            'max': 695127,
+            'median': 97511
+        }
+
 
 class UniV2Web3AsyncProxy(LPAsyncProxy):
     """"Proxies the state of the uniswap v2 LP through web3."""

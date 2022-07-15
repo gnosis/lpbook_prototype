@@ -52,6 +52,19 @@ class Curve(LP):
     def protocol_version(self) -> str:
         return ''
 
+    @classmethod
+    @property
+    def gas_stats(self) -> Dict:
+        # See https://dune.com/queries/1044860 .
+        return {
+            'nr_obs': 6463,
+            'mean': 150158.00061890762,
+            'stddev': 42372.3387235,
+            'min': 64177,
+            'max': 690906,
+            'median': 140940
+        }
+
     @property
     def state(self) -> Dict:
         return {

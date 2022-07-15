@@ -17,15 +17,13 @@ class LPCache:
     POOL_MAX_CACHED_AGE = datetime.timedelta(days=1)
     POOL_MIN_CACHED_AGE = datetime.timedelta(seconds=1)
 
-    def __init__(self, lp_drivers, gas_stats_collector):
+    def __init__(self, lp_drivers):
         self.lp_drivers = lp_drivers
-        self.gas_stats_collector = gas_stats_collector
         self.cached_tokens = set()
         self.token_last_request_datetime = {}
         self.last_refresh_datetime = None
         self.lp_sync_proxies = {}
         self.lp_sync_pool_ids = {}
-        self.lp_gas_stats = {}
 
     def get_lps_trading_tokens(self, token_ids: set, block_number=None) -> List[LP]:
         """Return all LPs that trade at least two tokens in token_ids.
@@ -52,10 +50,6 @@ class LPCache:
 
         if len(all_lps) == 0:
             logger.warning(f'Cache miss for token_ids {token_ids}.')
-
-        # Add gas statistics
-        for lp in all_lps:
-            lp.gas_stats = self.lp_gas_stats[lp.uid]
 
         return all_lps
 
@@ -87,7 +81,6 @@ class LPCache:
     async def refresh_driver(self, driver, tokens):
         cur_lp_sync_proxy = self.lp_sync_proxies.get(driver.protocol, None)
         cur_lp_ids = self.lp_sync_pool_ids.get(driver.protocol, set())
-        cur_lp_gas_stats = self.lp_gas_stats
 
         try:
             new_lp_ids = set(await driver.get_lp_ids(tokens))
@@ -97,7 +90,7 @@ class LPCache:
                 f"Traceback:\n{traceback.format_exc()}"
             )
             # Keep current proxy in case of error
-            return (cur_lp_sync_proxy, cur_lp_ids, cur_lp_gas_stats)
+            return (cur_lp_sync_proxy, cur_lp_ids)
 
         if len(new_lp_ids) == 0:
             return (lambda _: {}, set(), {})
@@ -105,7 +98,7 @@ class LPCache:
         # optimization: no need to reset proxies that return
         # the same set of pools as last time.
         if new_lp_ids == cur_lp_ids:
-            return (cur_lp_sync_proxy, cur_lp_ids, cur_lp_gas_stats)
+            return (cur_lp_sync_proxy, cur_lp_ids)
 
         new_lp_sync_proxy = driver.create_lp_sync_proxy(
             new_lp_ids,
@@ -119,14 +112,9 @@ class LPCache:
                 f"Error starting lp sync proxy for {driver.protocol}: {err}. "
                 f"Traceback:\n{traceback.format_exc()}"
             )
-            return (cur_lp_sync_proxy, cur_lp_ids, cur_lp_gas_stats)
+            return (cur_lp_sync_proxy, cur_lp_ids)
 
-        new_lp_gas_stats = {
-            lp_id: self.gas_stats_collector(driver.protocol, lp_id)
-            for lp_id in new_lp_ids
-        }
-
-        return (new_lp_sync_proxy, new_lp_ids, new_lp_gas_stats)
+        return (new_lp_sync_proxy, new_lp_ids)
 
     @traced(logger, 'Refreshing LP cache')
     async def refresh(self, tokens):
@@ -135,15 +123,13 @@ class LPCache:
 
         new_lp_sync_proxies = {}
         new_lp_sync_pool_ids = {}
-        new_lp_gas_stats = {}
 
         async def update_new(driver):
-            (driver_proxy, driver_lp_ids, driver_lp_gas_stats) = \
+            (driver_proxy, driver_lp_ids) = \
                 await self.refresh_driver(driver, tokens)
             if driver_proxy is not None:
                 new_lp_sync_proxies[driver.protocol] = driver_proxy
                 new_lp_sync_pool_ids[driver.protocol] = driver_lp_ids
-                new_lp_gas_stats.update(driver_lp_gas_stats)
 
         if len(tokens) > 0:
             await asyncio.gather(*[update_new(driver) for driver in self.lp_drivers])
@@ -156,6 +142,5 @@ class LPCache:
         # Replace old with new proxies.
         self.lp_sync_proxies = new_lp_sync_proxies
         self.lp_sync_pool_ids = new_lp_sync_pool_ids
-        self.lp_gas_stats = new_lp_gas_stats
         self.cached_tokens = tokens
         self.last_refresh_datetime = now
