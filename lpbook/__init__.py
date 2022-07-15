@@ -100,7 +100,7 @@ class LPSyncProxy(ABC):
         """Starts syncing proxy with proxied data source."""
 
     @abstractmethod
-    async def stop(self) -> None:
+    def stop(self) -> None:
         """Stops syncing proxy with proxied data source."""
 
 
@@ -156,8 +156,8 @@ class LPSyncProxyFromAsyncProxy(LPSyncProxy):
     async def start(self) -> None:
         pass
 
-    async def stop(self) -> None:
-        pass
+    def stop(self) -> None:
+        self.block_stream.unsubscribe(self.query_underlying_lp_async_proxy)
 
 
 class LPFromInitialStatePlusChangesProxy(LPSyncProxy):

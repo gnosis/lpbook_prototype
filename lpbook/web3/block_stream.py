@@ -41,6 +41,11 @@ class BlockStream(BlockScanning):
     def subscribe(self, subscriber):
         self.subscribers.append(subscriber)
 
+    def unsubscribe(self, subscriber):
+        if subscriber not in self.subscribers:
+            raise RuntimeError('Subscriber not in subscribers.')
+        self.subscribers = [s for s in self.subscribers if s != subscriber]
+
     async def trigger(self, block: BlockId):
         assert block.is_fully_qualified()
         self._last_block_number = block.number
