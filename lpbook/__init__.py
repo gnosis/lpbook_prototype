@@ -173,6 +173,15 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         self.event_log = RecentEventLog(web3_client, event_stream)
         self.checkpoint = None
 
+    @traced(logger, 'Resetting LPFromInitialStatePlusChangesProxy')
+    def reset_event_log(self) -> None:
+        self.stop()
+        self.event_log = RecentEventLog(
+            self.web3_client, self.event_stream
+        )
+        self.checkpoint = None
+        self.start()
+
     @traced(logger, 'Starting LPFromInitialStatePlusChangesProxy')
     async def start(self) -> None:
         # since async_proxy might not be up to date,
@@ -186,7 +195,8 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         await self.event_log.start(
             self.lp_ids,
             self.events,
-            start_block.number
+            start_block.number,
+            self.reset_event_log
         )
 
     @traced(logger, 'Stopping LPFromInitialStatePlusChangesProxy')

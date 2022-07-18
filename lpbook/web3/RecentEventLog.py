@@ -1,5 +1,5 @@
 import logging
-from typing import Any, List
+from typing import Any, Callable, List
 
 from lpbook.error import CacheMissError
 from lpbook.util import traced
@@ -65,7 +65,8 @@ class RecentEventLog:
         self,
         addresses: List[str],
         events: List[ContractEvent],
-        start_block_number: int
+        start_block_number: int,
+        on_dropped_subscription_error_fn: Callable[[RuntimeError], None]
     ) -> None:
         """Sets start_block to given block and starts collecting the delta asynchronously.
 
@@ -78,7 +79,8 @@ class RecentEventLog:
             self.process_new_event,
             addresses,
             events,
-            start_block_number
+            start_block_number,
+            on_dropped_subscription_error_fn
         )
         await self.event_stream.poll_for_subscriber(self.process_new_event)
 

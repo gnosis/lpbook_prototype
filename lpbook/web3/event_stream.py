@@ -28,7 +28,8 @@ class EventStream:
         subscriber: Subscriber,
         addresses: List[str],
         events: List[ContractEvent],
-        from_block_number: Optional[int]
+        from_block_number: Optional[int],
+        on_dropped_subscription_error_fn: Callable[[RuntimeError], None]
     ):
         """Subscribes the event stream filtered for given addresses and events.
 
@@ -59,6 +60,10 @@ class DroppedSubscriptionError(RuntimeError):
     # Apparently it does not annoy anyone in the blockchain world.
 
 
+def raise_err(err):
+    raise err
+
+
 class ServerFilteredEventPollingStream(EventStream):
     """A stream of events that is filtered on the server (the web3 node).
 
@@ -75,7 +80,8 @@ class ServerFilteredEventPollingStream(EventStream):
         addresses: List[str]
         events: List[ContractEvent]
         filter: Filter
-        updated_once: bool = False
+        updated_once: bool = False,
+        on_dropped_subscription_error_fn: Callable[[RuntimeError], None] = raise_err
 
     def __init__(self, web3_client):
         self.web3_client = web3_client
@@ -86,11 +92,14 @@ class ServerFilteredEventPollingStream(EventStream):
         subscriber: EventStream.Subscriber,
         addresses: List[str],
         events: List[ContractEvent],
-        from_block_number: Optional[int]
+        from_block_number: Optional[int],
+        on_dropped_subscription_error_fn: Callable[[RuntimeError], None]
     ):
         assert len(events) > 0
         filter = self.install_filter(addresses, events, from_block_number)
-        subscription = self.Subscription(addresses, events, filter, False)
+        subscription = self.Subscription(
+            addresses, events, filter, False, on_dropped_subscription_error_fn
+        )
         self.subscriptions[subscriber] = subscription
 
     def change_subscription(
@@ -166,7 +175,9 @@ class ServerFilteredEventPollingStream(EventStream):
         # sometimes the node just drops the filter without notice :(
         except ValueError as err:
             if self.is_filter_not_found_error(err):
-                raise DroppedSubscriptionError() from err
+                self.subscriptions[subscriber].on_dropped_subscription_error_fn(
+                    DroppedSubscriptionError()
+                )
             else:
                 raise err
 

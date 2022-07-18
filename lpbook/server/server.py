@@ -93,8 +93,7 @@ async def on_startup():
     univ2_driver = UniV2Driver(event_stream, block_stream, aiohttp_session, w3)
 
     # Create LP Cache (main service)
-    #lp_cache = LPCache([univ2_driver, univ3_driver, curve_driver])
-    lp_cache = LPCache([curve_driver])
+    lp_cache = LPCache([univ2_driver, univ3_driver, curve_driver])
 
     asyncio.ensure_future(block_stream.run())
     asyncio.ensure_future(lp_cache.run())
