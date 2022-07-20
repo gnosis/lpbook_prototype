@@ -322,6 +322,24 @@ class UniV2Driver(LPDriver):
         )
         return sync_proxy
 
+    def create_lp_async_proxy(
+        self,
+        lp_ids: List[str],
+        data_source: LPDriver.LPAsyncProxyDataSource =
+            LPDriver.LPAsyncProxyDataSource.Default
+    ) -> LPAsyncProxy:
+        if data_source in [
+            LPDriver.LPAsyncProxyDataSource.Default,
+            LPDriver.LPAsyncProxyDataSource.TheGraph
+        ]:
+            return UniV2TheGraphAsyncProxy(
+                lp_ids, self.graphql_client
+            )
+        elif data_source == LPDriver.LPAsyncProxyDataSource.Web3:
+            return UniV2Web3AsyncProxy(lp_ids, self.web3_client)
+
+        raise RuntimeError("Invalid data_source for async_proxy to UniV2")
+
     async def get_lp_ids(self, token_ids: List[str]) -> List[str]:
         def is_valid_token(token):
             return token.symbol is not None and len(token.symbol) > 0 and \
