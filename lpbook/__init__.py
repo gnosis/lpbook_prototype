@@ -246,6 +246,11 @@ class LPDriver(ABC):
         Web3 = 2
         TheGraphAndWeb3 = 3
 
+    class LPAsyncProxyDataSource(Enum):
+        Default = 0
+        TheGraph = 1
+        Web3 = 2
+
     def __init__(self, lp_cls):
         self.lp_cls = lp_cls
 
