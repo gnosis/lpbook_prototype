@@ -9,9 +9,8 @@ import aiohttp
 
 
 class UniV2GraphQLClient(GraphQLClient):
-    url = 'https://api.thegraph.com/subgraphs/name/uniswap/uniswap-v2'
-
-    def __init__(self, session: aiohttp.ClientSession):
+    def __init__(self, url: str, session: aiohttp.ClientSession):
+        self.url = url
         super().__init__(self.url, session)
 
     def set_pair_id_and_tokens_fields(self, pair):

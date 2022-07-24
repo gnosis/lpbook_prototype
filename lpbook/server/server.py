@@ -13,7 +13,7 @@ from lpbook.LPCache import LPCache
 from lpbook.LPHistoric import LPHistoric
 from lpbook.lps.curve import CurveDriver
 from lpbook.lps.uniswap_v3 import UniV3Driver
-from lpbook.lps.uniswap_v2 import UniV2Driver
+from lpbook.lps.uniswap_v2 import SushiDriver, UniV2Driver
 from lpbook.web3.block_stream import BlockStream
 from lpbook.web3.event_stream import ServerFilteredEventStream
 from pydantic import BaseSettings
@@ -114,14 +114,15 @@ async def on_startup():
     univ3_driver = UniV3Driver(event_stream, block_stream, aiohttp_session, w3)
     curve_driver = CurveDriver(block_stream, aiohttp_session, w3)
     univ2_driver = UniV2Driver(event_stream, block_stream, aiohttp_session, w3)
+    sushi_driver = SushiDriver(event_stream, block_stream, aiohttp_session, w3)
 
     # Create LP Cache (main service)
     # Returns current state (fast).
-    lp_cache = LPCache([univ2_driver, univ3_driver, curve_driver])
+    lp_cache = LPCache([univ2_driver, sushi_driver, univ3_driver, curve_driver])
 
     # Create LP Historic (main service)
     # Returns past state (slow).
-    lp_historic = LPHistoric([univ2_driver])
+    lp_historic = LPHistoric([univ2_driver, sushi_driver])
 
     asyncio.ensure_future(block_stream.run())
     asyncio.ensure_future(lp_cache.run())
