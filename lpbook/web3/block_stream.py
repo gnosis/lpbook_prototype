@@ -6,6 +6,7 @@ from typing import Optional
 from web3 import Web3
 
 from websockets import connect
+from websockets.exceptions import ConnectionClosedError
 
 from lpbook.util import traced
 from lpbook.web3 import BlockId
@@ -114,4 +115,9 @@ class BlockStream(BlockScanning):
         If start_block_number is not None, then it will first call subscribers
         on each block in [start_block_number, current_block_number[
         """
-        await self.run_helper(start_block_number)
+        while True:
+            try:
+                await self.run_helper(start_block_number)
+                return
+            except ConnectionClosedError:
+                start_block_number = self._last_block_number + 1
