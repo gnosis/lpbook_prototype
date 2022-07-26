@@ -209,8 +209,8 @@ class UniV2LikeTheGraphAsyncProxy(LPAsyncProxy):
             )
         ]
         balances = [
-            D(thegraph_data.reserve0) * 10**int(tokens[0].decimals),
-            D(thegraph_data.reserve1) * 10**int(tokens[1].decimals)
+            int(D(thegraph_data.reserve0) * 10**int(tokens[0].decimals)),
+            int(D(thegraph_data.reserve1) * 10**int(tokens[1].decimals))
         ]
 
         return UniV2Like(
