@@ -174,7 +174,7 @@ class LPFromInitialStatePlusChangesProxy(LPSyncProxy):
         self.checkpoint = None
 
     @traced(logger, 'Resetting LPFromInitialStatePlusChangesProxy')
-    def reset_event_log(self) -> None:
+    def reset_event_log(self, reason: RuntimeError) -> None:
         self.stop()
         self.event_log = RecentEventLog(
             self.web3_client, self.event_stream
