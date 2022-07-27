@@ -70,7 +70,8 @@ class BlockStream(BlockScanning):
             while True:
                 latest_block_number = w3.eth.get_block_number()
                 if start_block_number > latest_block_number:
-                    break
+                    await asyncio.sleep(15)
+                    continue
                 assert start_block_number <= latest_block_number
                 start_block = w3.eth.get_block(start_block_number)
                 logger.debug(
