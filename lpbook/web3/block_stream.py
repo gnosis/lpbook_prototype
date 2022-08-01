@@ -2,6 +2,7 @@ from abc import abstractproperty
 import asyncio
 import json
 import logging
+from socket import gaierror
 from typing import Optional
 from web3 import Web3
 
@@ -120,5 +121,5 @@ class BlockStream(BlockScanning):
             try:
                 await self.run_helper(start_block_number)
                 return
-            except ConnectionClosedError:
+            except (ConnectionClosedError, gaierror):
                 start_block_number = self._last_block_number + 1
