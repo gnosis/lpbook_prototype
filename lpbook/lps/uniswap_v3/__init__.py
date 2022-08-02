@@ -281,7 +281,11 @@ class UniV3Driver(LPDriver):
     async def get_lp_ids(self, token_ids: List[str]) -> List[str]:
         return [
             state.id async for state in self.graphql_client.get_pools_state(
-                {'token0_in': token_ids, 'token1_in': token_ids},
+                {
+                    'token0_in': token_ids,
+                    'token1_in': token_ids,
+                    'liquidity_gt': 0
+                },
                 field_setter=self.graphql_client.set_pool_id_field
             )
         ]
