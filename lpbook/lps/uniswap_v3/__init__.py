@@ -214,6 +214,12 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
                 lp_cur_state.liquidity_net[tick_lower] += d.args.amount
                 lp_cur_state.liquidity_net[tick_upper] -= d.args.amount
 
+                # remove 0 entries to save bandwidth
+                if lp_cur_state.liquidity_net[tick_lower] == 0:
+                    lp_cur_state.liquidity_net.pop(tick_lower)
+                if lp_cur_state.liquidity_net[tick_upper] == 0:
+                    lp_cur_state.liquidity_net.pop(tick_upper)
+
             elif d.event == 'Burn':
                 tick_lower = d.args.tickLower
                 tick_upper = d.args.tickUpper
@@ -234,6 +240,12 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
 
                 lp_cur_state.liquidity_net[tick_lower] -= d.args.amount
                 lp_cur_state.liquidity_net[tick_upper] += d.args.amount
+
+                # remove 0 entries to save bandwidth
+                if lp_cur_state.liquidity_net[tick_lower] == 0:
+                    lp_cur_state.liquidity_net.pop(tick_lower)
+                if lp_cur_state.liquidity_net[tick_upper] == 0:
+                    lp_cur_state.liquidity_net.pop(tick_upper)
 
             else:
                 assert False
