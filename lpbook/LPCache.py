@@ -93,7 +93,14 @@ class LPCache:
             return (cur_lp_sync_proxy, cur_lp_ids)
 
         if len(new_lp_ids) == 0:
-            return (lambda _: {}, set(), {})
+            class NoOpSyncProxy:
+                def __call__(self, _):
+                    return {}
+
+                def stop(self):
+                    pass
+
+            return (NoOpSyncProxy(), set())
 
         # optimization: no need to reset proxies that return
         # the same set of pools as last time.
