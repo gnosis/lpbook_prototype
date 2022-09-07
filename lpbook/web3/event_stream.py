@@ -153,14 +153,13 @@ class ServerFilteredEventPollingStream(EventStream):
 
         subscription.updated_once = True
 
-        # Not sure yet if the node will always send us the events in the
-        # "right" order in case of a reorg. Leaving this here in case
-        # we get assertion failures on RecentEventLog.
+        # Apparently node will always send us the events in the
+        # "right" order.
 
-        # decoded_events = sorted(
-        #    decoded_events,
-        #    key=lambda e: (not e.removed, e.blockNumber, e.logIndex)
-        # )
+        decoded_events = sorted(
+            decoded_events,
+            key=lambda e: (not e.removed, e.blockNumber, e.logIndex)
+        )
 
         for decoded_event in decoded_events:
             subscriber(decoded_event)
