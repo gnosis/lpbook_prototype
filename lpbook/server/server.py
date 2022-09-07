@@ -118,11 +118,12 @@ async def on_startup():
 
     # Create LP Cache (main service)
     # Returns current state (fast).
-    lp_cache = LPCache([univ2_driver, sushi_driver, univ3_driver, curve_driver])
+    #lp_cache = LPCache([univ2_driver, sushi_driver, univ3_driver, curve_driver])
+    lp_cache = LPCache([univ3_driver])
 
     # Create LP Historic (main service)
     # Returns past state (slow).
-    lp_historic = LPHistoric([univ2_driver, sushi_driver])
+    lp_historic = LPHistoric([univ3_driver, univ2_driver, sushi_driver])
 
     asyncio.ensure_future(block_stream.run())
     asyncio.ensure_future(lp_cache.run())
