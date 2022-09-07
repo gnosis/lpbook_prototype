@@ -202,7 +202,7 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
 
                 # liquidity tracks the liquidity on recent tick,
                 # only need to update it if the new position includes the recent tick.
-                if lp_cur_state.tick <= tick_lower and lp_cur_state.tick > tick_upper:
+                if tick_lower <= lp_cur_state.tick and lp_cur_state.tick < tick_upper:
                     lp_cur_state.liquidity += d.args.amount
 
                 if tick_lower not in lp_cur_state.liquidity_net.keys():
@@ -223,7 +223,7 @@ class UniV3TheGraphAndWeb3Proxy(LPFromInitialStatePlusChangesProxy):
 
                 # liquidity tracks the liquidity on recent tick,
                 # only need to update it if the new position includes the recent tick.
-                if lp_cur_state.tick <= tick_lower and lp_cur_state.tick > tick_upper:
+                if tick_lower <= lp_cur_state.tick and lp_cur_state.tick < tick_upper:
                     lp_cur_state.liquidity -= d.args.amount
 
                 if tick_lower not in lp_cur_state.liquidity_net.keys():
@@ -277,6 +277,22 @@ class UniV3Driver(LPDriver):
         else:
             assert False
         return sync_proxy
+
+    def create_lp_async_proxy(
+        self,
+        lp_ids: List[str],
+        data_source: LPDriver.LPAsyncProxyDataSource =
+            LPDriver.LPAsyncProxyDataSource.Default
+    ) -> LPAsyncProxy:
+        if data_source in [
+            LPDriver.LPAsyncProxyDataSource.Default,
+            LPDriver.LPAsyncProxyDataSource.TheGraph
+        ]:
+            return UniV3TheGraphProxy(
+                lp_ids, self.graphql_client
+            )
+
+        raise RuntimeError("Invalid data_source for async_proxy to UniV3")
 
     async def get_lp_ids(self, token_ids: List[str]) -> List[str]:
         return [
