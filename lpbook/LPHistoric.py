@@ -18,6 +18,8 @@ class LPHistoric:
         all_lps = []
         for driver in self.lp_drivers:
             lp_ids = await driver.get_lp_ids(token_ids)
+            if len(lp_ids) == 0:
+                continue
             lp_async_proxy = driver.create_lp_async_proxy(lp_ids)
             all_lps += list((await lp_async_proxy(BlockId(number=block_number))).values())
 
