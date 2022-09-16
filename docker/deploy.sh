@@ -1,14 +1,13 @@
 #!/bin/bash
 set -euo pipefail
 
-# Get login token and execute login
-sudo pip install awscli
-$(aws ecr get-login --no-include-email --region $AWS_REGION)
+echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_NAME" --password-stdin
 
 echo "Tagging latest image with solver...";
-docker build --tag $REGISTRY_URI:$1 -f docker/Dockerfile .
+docker build -t "${DOCKERHUB_PROJECT}" -f docker/Dockerfile .
+docker tag "${DOCKERHUB_PROJECT}" "$DOCKER_NAME"/"${DOCKERHUB_PROJECT}":$1
 echo "Pushing image";
-docker push $REGISTRY_URI:$1
+docker push "$DOCKER_NAME"/"${DOCKERHUB_PROJECT}":$1
 
 if [ "$1" == "main" ]; then
     echo "Restarting pod..."

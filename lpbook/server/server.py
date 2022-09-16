@@ -118,8 +118,8 @@ async def on_startup():
 
     # Create LP Cache (main service)
     # Returns current state (fast).
-    #lp_cache = LPCache([univ2_driver, sushi_driver, univ3_driver, curve_driver])
-    lp_cache = LPCache([univ3_driver])
+    lp_cache = LPCache([univ2_driver, sushi_driver, univ3_driver, curve_driver])
+    #lp_cache = LPCache([univ3_driver])
 
     # Create LP Historic (main service)
     # Returns past state (slow).

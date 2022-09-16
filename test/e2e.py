@@ -183,6 +183,6 @@ async def test_uniswap_v2():
 
         await assert_equivalent_proxies(w3, proxy_thegraph, proxy_web3, block_stream, 10)
 
-# asyncio.run(test_uniswap_v3())
+asyncio.run(test_uniswap_v3())
 # asyncio.run(test_curve())
-asyncio.run(test_uniswap_v2())
+#asyncio.run(test_uniswap_v2())
