@@ -5,9 +5,9 @@ echo "$DOCKER_PASSWORD" | docker login -u "$DOCKER_NAME" --password-stdin
 
 echo "Tagging latest image with solver...";
 docker build -t "${DOCKERHUB_PROJECT}" -f docker/Dockerfile .
-docker tag "${DOCKERHUB_PROJECT}" "$DOCKER_NAME"/"${DOCKERHUB_PROJECT}":$1
+docker tag "${DOCKERHUB_PROJECT}" gnosispm/"${DOCKERHUB_PROJECT}":$1
 echo "Pushing image";
-docker push "$DOCKER_NAME"/"${DOCKERHUB_PROJECT}":$1
+docker push gnosispm/"${DOCKERHUB_PROJECT}":$1
 
 if [ "$1" == "main" ]; then
     echo "Restarting pod..."
