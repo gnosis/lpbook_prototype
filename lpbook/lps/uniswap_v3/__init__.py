@@ -136,7 +136,7 @@ class UniV3TheGraphProxy(LPAsyncProxy):
 
         # Perform a more efficient query if we're tracking a single LP.
         if len(self.lp_ids) == 1:
-            lp_id = self.lp_ids[0]
+            lp_id = list(self.lp_ids)[0]
             thegraph_lp_data = await self.client.get_pool_state_and_ticks(
                 lp_id,
                 **extra_kwargs
