@@ -1,5 +1,6 @@
 from abc import abstractproperty
 import asyncio
+import datetime
 import json
 import logging
 from socket import gaierror
@@ -33,12 +34,15 @@ class BlockStream(BlockScanning):
         """web3_ws should be a node websocket endpoint"""
         self.web3_ws = web3_ws
         self.subscribers = []
-        self._last_block = None
+        #self._last_block = None
+        self._last_block_number = None
+        self._last_block_hash = None
         self.running = False
 
     @property
     def last_block(self) -> Optional[BlockId]:
-        return self._last_block
+        #return self._last_block
+        return BlockId(number=self._last_block_number, hash=self._last_block_hash)
 
     def subscribe(self, subscriber):
         self.subscribers.append(subscriber)
@@ -117,9 +121,22 @@ class BlockStream(BlockScanning):
         If start_block_number is not None, then it will first call subscribers
         on each block in [start_block_number, current_block_number[
         """
-        while True:
+
+        def cant_start_for_more_than_one_block(block_number_before_start, start_time):
+            if self._last_block_number is None:
+                return False
+            return block_number_before_start == self._last_block_number and \
+               datetime.datetime.now() - start_time > datetime.timedelta(seconds=12)
+
+        block_before_start = self.last_block
+        start_time = datetime.datetime.now()
+        while not cant_start_for_more_than_one_block(block_before_start, start_time):
+            block_before_start = self.last_block
+            start_time = datetime.datetime.now()
             try:
                 await self.run_helper(start_block_number)
                 return
             except (ConnectionClosedError, gaierror):
                 start_block_number = self._last_block_number + 1
+
+        raise RuntimeError("Could not start block_stream for more than a block's time. Fatal.")
