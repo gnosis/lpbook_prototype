@@ -5,6 +5,7 @@ import json
 import logging
 from socket import gaierror
 from typing import Optional
+from requests import ReadTimeout
 from web3 import Web3
 
 from websockets import connect
@@ -136,7 +137,7 @@ class BlockStream(BlockScanning):
             try:
                 await self.run_helper(start_block_number)
                 return
-            except (ConnectionClosedError, gaierror):
+            except (ConnectionClosedError, gaierror, ReadTimeout):
                 start_block_number = self._last_block_number + 1
 
         raise RuntimeError("Could not start block_stream for more than a block's time. Fatal.")

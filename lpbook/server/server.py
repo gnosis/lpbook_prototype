@@ -89,6 +89,17 @@ async def lps_trading_tokens_historic(token_ids: List[str], block_number: int):
         return []
 
 
+async def make_fatal(coroutine):
+    try:
+        await coroutine
+    except Exception as e:
+        logger.error(
+            f"Received fatal exception: {str(e)}. " 
+            f"Traceback:\n{traceback.format_exc()}\n"
+        )
+        sys.exit(1)
+
+
 @app.on_event('startup')
 async def on_startup():
     global aiohttp_session
@@ -125,8 +136,8 @@ async def on_startup():
     # Returns past state (slow).
     lp_historic = LPHistoric([univ3_driver, univ2_driver, sushi_driver])
 
-    asyncio.ensure_future(block_stream.run())
-    asyncio.ensure_future(lp_cache.run())
+    asyncio.ensure_future(make_fatal(block_stream.run()))
+    asyncio.ensure_future(make_fatal(lp_cache.run()))
 
 
 @app.on_event('shutdown')
