@@ -94,6 +94,8 @@ async def reset():
     global lp_cache
     global lp_historic
 
+    logger.info("Resetting LPBook ...")
+
     HTTP_WEB3_URL = os.getenv('HTTP_WEB3_URL')
     WS_WEB3_URL = os.getenv('WS_WEB3_URL')
 
@@ -142,12 +144,14 @@ async def reset_on_error():
 
 @app.on_event('startup')
 async def on_startup():
+    logger.info("Starting LPBook ...")
     asyncio.ensure_future(reset_on_error())
 
 
 @app.on_event('shutdown')
 async def on_shutdown():
     await aiohttp_session.close()
+    logger.info("Exiting LPBook ...")
 
 # ++++ Server setup: ++++
 
